@@ -1,0 +1,11 @@
+[Unit]
+Description=nasOS Hardware Watchdog
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/watchdog -v /dev/watchdog
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

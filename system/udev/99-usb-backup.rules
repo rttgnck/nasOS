@@ -1,0 +1,7 @@
+# nasOS: USB one-touch backup trigger
+# When a USB drive with a file named .nasos-backup is inserted,
+# automatically trigger the associated backup job
+
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]1", \
+  ENV{ID_FS_LABEL}=="NASOS_BACKUP", \
+  RUN+="/opt/nasos/scripts/usb-backup-trigger.sh %k"

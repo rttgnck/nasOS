@@ -1,0 +1,13 @@
+{
+  "name": "nasos-electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron main.js --dev",
+    "build": "echo 'Electron main process does not need separate build'"
+  },
+  "dependencies": {
+    "electron": "^33.0.0"
+  }
+}

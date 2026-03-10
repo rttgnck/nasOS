@@ -1,0 +1,27 @@
+[Unit]
+Description=nasOS Backend API Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nasos
+Group=nasos
+WorkingDirectory=/opt/nasos/backend
+Environment=NASOS_DEV_MODE=false
+Environment=NASOS_DATA_DIR=/opt/nasos/data
+Environment=NASOS_DB_PATH=/opt/nasos/data/nasos.db
+ExecStart=/opt/nasos/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/nasos/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

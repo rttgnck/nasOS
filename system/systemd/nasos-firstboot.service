@@ -1,0 +1,12 @@
+[Unit]
+Description=nasOS First Boot Setup
+ConditionPathExists=!/opt/nasos/data/.setup-complete
+Before=nasos-backend.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nasos/scripts/first-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

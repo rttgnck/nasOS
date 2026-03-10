@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - nasos-data:/opt/nasos/data
+    environment:
+      - NASOS_DEV_MODE=true
+      - NASOS_DATA_DIR=/opt/nasos/data
+      - NASOS_DB_PATH=/opt/nasos/data/nasos.db
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  nasos-data:

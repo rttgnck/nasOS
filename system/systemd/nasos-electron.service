@@ -1,0 +1,27 @@
+[Unit]
+Description=nasOS Desktop (Electron via Cage Wayland compositor)
+After=nasos-backend.service
+Wants=nasos-backend.service
+ConditionPathExists=/dev/dri/card0
+
+[Service]
+Type=simple
+User=nasos
+Group=nasos
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=NASOS_DISABLE_GPU=0
+
+# Cage is a single-app Wayland compositor — perfect for kiosk mode
+ExecStart=/usr/bin/cage -- /opt/nasos/electron/node_modules/.bin/electron /opt/nasos/electron/main.js
+Restart=on-failure
+RestartSec=3
+
+# TTY for display output
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

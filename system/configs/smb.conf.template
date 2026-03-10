@@ -1,0 +1,37 @@
+[global]
+   workgroup = WORKGROUP
+   server string = nasOS
+   server role = standalone server
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   logging = file
+
+   # Security
+   security = user
+   map to guest = never
+   server min protocol = SMB2
+   server smb encrypt = desired
+
+   # Performance
+   socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072
+   read raw = yes
+   write raw = yes
+   use sendfile = yes
+   aio read size = 16384
+   aio write size = 16384
+
+   # macOS compatibility
+   vfs objects = fruit streams_xattr
+   fruit:metadata = stream
+   fruit:model = MacSamba
+   fruit:posix_rename = yes
+   fruit:veto_appledouble = no
+   fruit:nfs_aces = no
+   fruit:wipe_intentionally_left_blank_rfork = yes
+   fruit:delete_empty_adfiles = yes
+
+   # Avahi / Bonjour
+   multicast dns register = yes
+
+# Shares are auto-generated below this line by nasOS backend
+# --- NASOS SHARES ---
