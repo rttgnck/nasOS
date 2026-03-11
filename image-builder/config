@@ -1,0 +1,25 @@
+# nasOS pi-gen configuration
+# This file is sourced by pi-gen's build-docker.sh
+
+IMG_NAME="nasOS"
+RELEASE="bookworm"
+TARGET_HOSTNAME="nasos"
+FIRST_USER_NAME="nasos"
+FIRST_USER_PASS="nasos"        # Changed on first boot via wizard
+ENABLE_SSH="1"
+DISABLE_FIRST_BOOT_WIZARD="1"  # We have our own first-boot wizard
+LOCALE_DEFAULT="en_US.UTF-8"
+KEYBOARD_KEYMAP="us"
+KEYBOARD_LAYOUT="English (US)"
+TIMEZONE_DEFAULT="UTC"
+
+# Build stages: base Raspberry Pi OS Lite + our custom stage
+STAGE_LIST="stage0 stage1 stage2 stage-nasos"
+
+# Output format
+DEPLOY_ZIP="1"         # Compress output with xz
+USE_QEMU="0"           # Use native QEMU acceleration where possible
+
+# Image size — 4 GB minimum for the OS; user data lives on attached storage
+BOOT_SIZE="256"        # Boot partition in MB
+ROOT_SIZE="3072"       # Root in MB (3 GB)

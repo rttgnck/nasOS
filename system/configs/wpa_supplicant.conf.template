@@ -1,0 +1,58 @@
+## nasOS WiFi Support
+
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=US
+
+# ─────────────────────────────────────────────────────────────────
+# INSTRUCTIONS — Edit this file before inserting the SD card
+# ─────────────────────────────────────────────────────────────────
+#
+# 1. Set country= to your 2-letter ISO country code (e.g. GB, CA, DE, FR, AU)
+# 2. Fill in your WiFi network name (ssid) and password (psk) below
+# 3. For WPA2-Personal (the most common home router type), use the
+#    network block exactly as shown — just change the ssid and psk.
+# 4. For networks with no password (open/public), remove the psk= line
+#    entirely and add:  key_mgmt=NONE
+# 5. Save the file and insert the SD card into your Pi. nasOS will
+#    connect automatically on first boot.
+#
+# After first boot, you can change your WiFi settings from nasOS:
+#   Settings → Network → WiFi
+#
+# EXAMPLES:
+#
+#   WPA2-Personal (standard home/office):
+#   network={
+#       ssid="MyHomeNetwork"
+#       psk="MyPassword123"
+#   }
+#
+#   5 GHz band (add freq_list to prefer 5 GHz):
+#   network={
+#       ssid="MyNetwork_5G"
+#       psk="MyPassword123"
+#       freq_list=5180 5200 5220
+#   }
+#
+#   Open/public network (no password):
+#   network={
+#       ssid="CoffeeShopWifi"
+#       key_mgmt=NONE
+#   }
+#
+#   WPA2-Enterprise (802.1X, e.g. corporate/university):
+#   network={
+#       ssid="CorpNetwork"
+#       key_mgmt=WPA-EAP
+#       eap=PEAP
+#       identity="user@domain.com"
+#       password="YourPassword"
+#       phase2="auth=MSCHAPV2"
+#   }
+# ─────────────────────────────────────────────────────────────────
+
+network={
+    ssid="YOUR_WIFI_NETWORK_NAME"
+    psk="YOUR_WIFI_PASSWORD"
+}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Folder, Home } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 
 interface TreeNode {
@@ -31,6 +32,35 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
   useEffect(() => {
     loadTree('').then(setTree)
   }, [loadTree])
+
+  // Auto-expand tree to match currentPath when navigating in the file viewer
+  useEffect(() => {
+    if (!currentPath) return
+    const segments = currentPath.split('/').filter(Boolean)
+    const ancestors: string[] = []
+    for (let i = 0; i < segments.length; i++) {
+      ancestors.push(segments.slice(0, i + 1).join('/'))
+    }
+
+    const expandAncestors = async () => {
+      const next = new Set(expanded)
+      let currentTree = tree
+      for (const ancestor of ancestors) {
+        next.add(ancestor)
+        // Find node in tree and load children if needed
+        const node = findNode(currentTree, ancestor)
+        if (node && node.children.length === 0 && node.has_children !== false) {
+          const children = await loadTree(node.path)
+          updateChildren(tree, node.path, children)
+          node.children = children
+        }
+      }
+      setTree([...tree])
+      setExpanded(next)
+    }
+    expandAncestors()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath])
 
   const toggleExpand = async (node: TreeNode) => {
     const next = new Set(expanded)
@@ -70,7 +100,7 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
           >
             {hasKids ? (isExpanded ? '▾' : '▸') : ' '}
           </span>
-          <span className="fm-tree-icon">📁</span>
+          <span className="fm-tree-icon"><Folder size={14} /></span>
           <span className="fm-tree-name">{node.name}</span>
         </div>
         {isExpanded && node.children.map((child) => renderNode(child, depth + 1))}
@@ -86,7 +116,7 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
         onClick={() => onNavigate('')}
       >
         <span className="fm-tree-toggle"> </span>
-        <span className="fm-tree-icon">🏠</span>
+        <span className="fm-tree-icon"><Home size={14} /></span>
         <span className="fm-tree-name">Home</span>
       </div>
       {tree.map((node) => renderNode(node))}
@@ -103,4 +133,13 @@ function updateChildren(nodes: TreeNode[], targetPath: string, children: TreeNod
     if (updateChildren(node.children, targetPath, children)) return true
   }
   return false
+}
+
+function findNode(nodes: TreeNode[], targetPath: string): TreeNode | null {
+  for (const node of nodes) {
+    if (node.path === targetPath) return node
+    const found = findNode(node.children, targetPath)
+    if (found) return found
+  }
+  return null
 }

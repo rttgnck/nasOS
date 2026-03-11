@@ -140,7 +140,35 @@ def get_thermal_config() -> dict:
             },
         }
     # Real: /sys/class/thermal/, vcgencmd get_throttled
-    return {"cpu_temp": 0, "gpu_temp": 0, "throttled": False}
+    cpu_temp = 0.0
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            cpu_temp = int(f.read().strip()) / 1000.0
+    except Exception:
+        pass
+
+    throttle_hex = 0
+    try:
+        import subprocess
+        out = subprocess.check_output(["vcgencmd", "get_throttled"], text=True).strip()
+        throttle_hex = int(out.split("=")[1], 16)
+    except Exception:
+        pass
+
+    return {
+        "cpu_temp": cpu_temp,
+        "gpu_temp": cpu_temp,  # GPU shares die on RPi
+        "throttled": bool(throttle_hex & 0xF),
+        "throttle_flags": {
+            "under_voltage": bool(throttle_hex & 0x1),
+            "arm_freq_capped": bool(throttle_hex & 0x2),
+            "currently_throttled": bool(throttle_hex & 0x4),
+            "soft_temp_limit": bool(throttle_hex & 0x8),
+        },
+        "fan": {"present": False, "mode": "N/A", "speed_pct": 0, "rpm": 0},
+        "fan_curves": {},
+        "temp_history_24h": {"min": cpu_temp, "max": cpu_temp, "avg": cpu_temp},
+    }
 
 
 # ── 8. OTA Update Mechanism ───────────────────────────────────────

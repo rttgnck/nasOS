@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react'
 import { useSystemStore } from '../store/systemStore'
 
 interface Toast {
-  id: number
+  id: string
   title: string
   message: string
   type: 'info' | 'warning' | 'error' | 'success'
@@ -12,7 +13,7 @@ interface Toast {
 export function ToastContainer() {
   const notifications = useSystemStore((s) => s.notifications)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const lastSeenRef = useRef(0)
+  const lastSeenRef = useRef('')
 
   // Watch for new notifications and create toasts
   useEffect(() => {
@@ -42,7 +43,7 @@ export function ToastContainer() {
     }
   }, [notifications])
 
-  const dismissToast = (id: number) => {
+  const dismissToast = (id: string) => {
     setToasts((prev) =>
       prev.map((t) => (t.id === id ? { ...t, exiting: true } : t))
     )
@@ -55,10 +56,10 @@ export function ToastContainer() {
 
   const typeIcon = (type: string) => {
     switch (type) {
-      case 'error': return '⛔'
-      case 'warning': return '⚠️'
-      case 'success': return '✅'
-      default: return 'ℹ️'
+      case 'error': return <XCircle size={16} />
+      case 'warning': return <AlertTriangle size={16} />
+      case 'success': return <CheckCircle2 size={16} />
+      default: return <Info size={16} />
     }
   }
 

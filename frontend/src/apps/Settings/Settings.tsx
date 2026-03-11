@@ -1,4 +1,50 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Component, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  AlertTriangle, BatteryCharging, Clock, Cpu, Globe, Info, Lock, LockOpen,
+  Monitor, Network, Package, Palette, Plug, Printer, Radio, RotateCcw, Shield, Smartphone, Thermometer,
+  User as UserIcon, Users, Wifi, WifiOff, Zap,
+} from 'lucide-react'
+import { api } from '../../hooks/useApi'
+import { useSystemStore } from '../../store/systemStore'
+import { PasswordInput } from '../../components/PasswordInput'
+
+// ── Error Boundary ────────────────────────────────────────────────
+
+class TabErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[Settings TabErrorBoundary]', error, info.componentStack)
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="set-tab-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 }}>
+          <AlertTriangle size={36} color="#ff5252" />
+          <div style={{ color: '#ff5252', fontWeight: 600 }}>Something went wrong in this tab</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 400, textAlign: 'center' }}>
+            {this.state.error.message}
+          </div>
+          <button
+            className="set-btn"
+            onClick={() => this.setState({ error: null })}
+          >
+            Retry
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -43,16 +89,9 @@ interface ServiceInfo {
   status: string
 }
 
-async function api(url: string, opts?: RequestInit) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
-}
 
 type SettingsTab =
+  | 'personalization'
   | 'users'
   | 'network'
   | 'services'
@@ -69,51 +108,63 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
   return (
     <div className="set-root">
       <div className="set-sidebar">
+        <div className="set-sidebar-logo">
+          <img src="/nasos-logo.svg" alt="nasOS" className="set-logo-img" />
+          <span className="set-logo-text">nasOS</span>
+        </div>
+        <div className="set-nav-group">Appearance</div>
+        <button className={`set-nav ${tab === 'personalization' ? 'active' : ''}`} onClick={() => setTab('personalization')}>
+          <Palette size={14} strokeWidth={2} /> Personalization
+        </button>
+
         <div className="set-nav-group">System</div>
         <button className={`set-nav ${tab === 'users' ? 'active' : ''}`} onClick={() => setTab('users')}>
-          👤 Users & Groups
+          <Users size={14} strokeWidth={2} /> Users &amp; Groups
         </button>
         <button className={`set-nav ${tab === 'network' ? 'active' : ''}`} onClick={() => setTab('network')}>
-          🌐 Network
+          <Globe size={14} strokeWidth={2} /> Network
         </button>
         <button className={`set-nav ${tab === 'services' ? 'active' : ''}`} onClick={() => setTab('services')}>
-          ⚡ Services
+          <Zap size={14} strokeWidth={2} /> Services
         </button>
         <button className={`set-nav ${tab === 'avahi' ? 'active' : ''}`} onClick={() => setTab('avahi')}>
-          📡 Avahi / mDNS
+          <Radio size={14} strokeWidth={2} /> Avahi / mDNS
         </button>
 
         <div className="set-nav-group">Hardware</div>
         <button className={`set-nav ${tab === 'thermal' ? 'active' : ''}`} onClick={() => setTab('thermal')}>
-          🌡️ Thermal
+          <Thermometer size={14} strokeWidth={2} /> Thermal
         </button>
         <button className={`set-nav ${tab === 'ups' ? 'active' : ''}`} onClick={() => setTab('ups')}>
-          🔋 UPS / Power
+          <BatteryCharging size={14} strokeWidth={2} /> UPS / Power
         </button>
 
         <div className="set-nav-group">Security</div>
         <button className={`set-nav ${tab === 'security' ? 'active' : ''}`} onClick={() => setTab('security')}>
-          🛡️ Security
+          <Shield size={14} strokeWidth={2} /> Security
         </button>
 
         <div className="set-nav-group">Maintenance</div>
         <button className={`set-nav ${tab === 'updates' ? 'active' : ''}`} onClick={() => setTab('updates')}>
-          📦 Updates
+          <Package size={14} strokeWidth={2} /> Updates
         </button>
         <button className={`set-nav ${tab === 'timemachine' ? 'active' : ''}`} onClick={() => setTab('timemachine')}>
-          🍎 Time Machine
+          <Clock size={14} strokeWidth={2} /> Time Machine
         </button>
       </div>
       <div className="set-content">
-        {tab === 'users' && <UsersTab />}
-        {tab === 'network' && <NetworkTab />}
-        {tab === 'services' && <ServicesTab />}
-        {tab === 'security' && <SecurityTab />}
-        {tab === 'thermal' && <ThermalTab />}
-        {tab === 'ups' && <UpsTab />}
-        {tab === 'updates' && <UpdatesTab />}
-        {tab === 'avahi' && <AvahiTab />}
-        {tab === 'timemachine' && <TimeMachineTab />}
+        <TabErrorBoundary key={tab}>
+          {tab === 'personalization' && <PersonalizationTab />}
+          {tab === 'users' && <UsersTab />}
+          {tab === 'network' && <NetworkTab />}
+          {tab === 'services' && <ServicesTab />}
+          {tab === 'security' && <SecurityTab />}
+          {tab === 'thermal' && <ThermalTab />}
+          {tab === 'ups' && <UpsTab />}
+          {tab === 'updates' && <UpdatesTab />}
+          {tab === 'avahi' && <AvahiTab />}
+          {tab === 'timemachine' && <TimeMachineTab />}
+        </TabErrorBoundary>
       </div>
     </div>
   )
@@ -128,9 +179,21 @@ function UsersTab() {
   const [newUser, setNewUser] = useState({ username: '', password: '', fullname: '' })
   const [error, setError] = useState('')
 
+  // Password reveal toggles — replaced by PasswordInput component
+
+  // Set Password modal state
+  const [setPwTarget, setSetPwTarget] = useState<string | null>(null)  // username
+  const [setPwValue, setSetPwValue] = useState('')
+  const [setPwConfirm, setSetPwConfirm] = useState('')
+  const [setPwError, setSetPwError] = useState('')
+  const [setPwOk, setSetPwOk] = useState(false)
+
   const load = useCallback(async () => {
     try {
-      const [u, g] = await Promise.all([api('/api/users'), api('/api/users/groups')])
+      const [u, g] = await Promise.all([
+        api<{ users: User[] }>('/api/users'),
+        api<{ groups: Group[] }>('/api/users/groups'),
+      ])
       setUsers(u.users)
       setGroups(g.groups)
     } catch { /* ignore */ }
@@ -164,11 +227,40 @@ function UsersTab() {
     } catch { /* ignore */ }
   }
 
+  const openSetPw = (username: string) => {
+    setSetPwTarget(username)
+    setSetPwValue('')
+    setSetPwConfirm('')
+    setSetPwError('')
+    setSetPwOk(false)
+  }
+
+  const handleSetPassword = async () => {
+    if (!setPwValue) { setSetPwError('Password cannot be empty'); return }
+    if (setPwValue !== setPwConfirm) { setSetPwError('Passwords do not match'); return }
+    try {
+      await api(`/api/users/${setPwTarget}/password`, {
+        method: 'POST',
+        body: JSON.stringify({ password: setPwValue }),
+      })
+      setSetPwOk(true)
+      setSetPwError('')
+    } catch (e) {
+      setSetPwError(e instanceof Error ? e.message : 'Failed to set password')
+    }
+  }
+
   return (
     <div className="set-tab-content">
       <div className="set-section-header">
         <h3>System Users</h3>
         <button className="set-btn set-btn-primary" onClick={() => setShowCreate(true)}>+ Add User</button>
+      </div>
+
+      {/* Note shown when Samba password may not be configured */}
+      <div className="set-info-banner" style={{ marginBottom: 12 }}>
+        <strong>Tip:</strong> If your network share rejects your password, use <em>Set Password</em> below to sync your credentials.
+        Modern Pi Imager stores passwords as hashes that cannot be used to auto-configure Samba.
       </div>
 
       <div className="set-table">
@@ -181,7 +273,7 @@ function UsersTab() {
         {users.map((u) => (
           <div key={u.uid} className="set-table-row">
             <span className="set-col-user">
-              <span className="set-user-avatar">👤</span>
+              <UserIcon size={18} strokeWidth={1.5} style={{ flexShrink: 0 }} />
               <span>
                 <div className="set-user-name">{u.username}</div>
                 {u.fullname && <div className="set-user-full">{u.fullname}</div>}
@@ -194,6 +286,9 @@ function UsersTab() {
             </span>
             <span className="set-col-shell set-mono">{u.shell}</span>
             <span className="set-col-actions">
+              <button className="set-btn-sm set-btn-secondary" onClick={() => openSetPw(u.username)}>
+                Set Password
+              </button>
               {u.username !== 'admin' && (
                 <button className="set-btn-sm set-btn-danger" onClick={() => handleDelete(u.username)}>
                   Delete
@@ -218,6 +313,7 @@ function UsersTab() {
         ))}
       </div>
 
+      {/* ── Create User modal ── */}
       {showCreate && (
         <div className="shr-overlay" onClick={() => setShowCreate(false)}>
           <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
@@ -237,12 +333,71 @@ function UsersTab() {
               </label>
               <label className="shr-field">
                 <span>Password</span>
-                <input type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} placeholder="••••••••" />
+                <PasswordInput
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  placeholder="••••••••"
+                />
               </label>
             </div>
             <div className="shr-wizard-footer">
               <button className="shr-btn" onClick={() => setShowCreate(false)}>Cancel</button>
               <button className="shr-btn shr-btn-primary" onClick={handleCreate}>Create User</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Set Password modal ── */}
+      {setPwTarget !== null && (
+        <div className="shr-overlay" onClick={() => setSetPwTarget(null)}>
+          <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
+            <div className="shr-wizard-header">
+              <h3>Set Password — {setPwTarget}</h3>
+              <button className="shr-btn-icon" onClick={() => setSetPwTarget(null)}>✕</button>
+            </div>
+            {setPwError && <div className="shr-wizard-error">{setPwError}</div>}
+            {setPwOk ? (
+              <div className="shr-wizard-body">
+                <div className="upd-result-ok">
+                  Password updated for <strong>{setPwTarget}</strong>.
+                  Linux system password and Samba share password are now in sync.
+                </div>
+              </div>
+            ) : (
+              <div className="shr-wizard-body">
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Updates both the Linux login password and the network share (SMB) password.
+                </p>
+                <label className="shr-field">
+                  <span>New Password</span>
+                  <PasswordInput
+                    value={setPwValue}
+                    onChange={(e) => setSetPwValue(e.target.value)}
+                    placeholder="••••••••"
+                    autoFocus
+                  />
+                </label>
+                <label className="shr-field">
+                  <span>Confirm Password</span>
+                  <PasswordInput
+                    value={setPwConfirm}
+                    onChange={(e) => setSetPwConfirm(e.target.value)}
+                    placeholder="••••••••"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSetPassword()}
+                  />
+                </label>
+              </div>
+            )}
+            <div className="shr-wizard-footer">
+              <button className="shr-btn" onClick={() => setSetPwTarget(null)}>
+                {setPwOk ? 'Close' : 'Cancel'}
+              </button>
+              {!setPwOk && (
+                <button className="shr-btn shr-btn-primary" onClick={handleSetPassword}>
+                  Set Password
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -253,78 +408,226 @@ function UsersTab() {
 
 // ── Network Tab ──────────────────────────────────────────────────
 
+interface WifiStatus {
+  enabled: boolean
+  connected: boolean
+  ssid: string
+  ip_address: string
+  signal: number
+  country: string
+}
+
+interface WifiNetwork {
+  ssid: string
+  signal: number
+  security: string
+  frequency: string
+  connected: boolean
+}
+
+function signalBars(dbm: number) {
+  const bars = dbm >= -50 ? 4 : dbm >= -65 ? 3 : dbm >= -75 ? 2 : 1
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 1, height: 14 }}>
+      {Array.from({ length: 4 }, (_, i) => (
+        <span key={i} style={{
+          display: 'inline-block', width: 4,
+          height: 4 + i * 3, borderRadius: 1,
+          background: i < bars ? '#4fc3f7' : 'rgba(255,255,255,0.18)',
+        }} />
+      ))}
+    </span>
+  )
+}
+
 function NetworkTab() {
   const [info, setInfo] = useState<NetworkInfo | null>(null)
+  const [wifiStatus, setWifiStatus] = useState<WifiStatus | null>(null)
+  const [networks, setNetworks] = useState<WifiNetwork[]>([])
+  const [scanning, setScanning] = useState(false)
+  const [connectModal, setConnectModal] = useState<WifiNetwork | null>(null)
+  const [password, setPassword] = useState('')
+  const [country, setCountry] = useState('US')
+  const [connectError, setConnectError] = useState('')
+  const [connectBusy, setConnectBusy] = useState(false)
 
-  useEffect(() => {
-    api('/api/network').then(setInfo).catch(() => {})
+  const loadInfo = useCallback(() => {
+    api<NetworkInfo>('/api/network').then(setInfo).catch(() => {})
+    api<WifiStatus>('/api/wifi/status').then(setWifiStatus).catch(() => {})
   }, [])
+
+  useEffect(() => { loadInfo() }, [loadInfo])
+
+  const handleScan = async () => {
+    setScanning(true)
+    try { setNetworks(await api('/api/wifi/scan')) } catch { /* ignore */ }
+    setScanning(false)
+  }
+
+  const handleDisconnect = async () => {
+    try { await api('/api/wifi/disconnect', { method: 'DELETE' }) } catch { /* ignore */ }
+    loadInfo()
+    setNetworks([])
+  }
+
+  const handleConnect = async () => {
+    if (!connectModal) return
+    if (connectModal.security !== 'Open' && !password) { setConnectError('Password required'); return }
+    setConnectBusy(true); setConnectError('')
+    try {
+      await api('/api/wifi/connect', {
+        method: 'POST',
+        body: JSON.stringify({ ssid: connectModal.ssid, password, country }),
+      })
+      setConnectModal(null)
+      loadInfo()
+      handleScan()
+    } catch (e) { setConnectError(e instanceof Error ? e.message : 'Connection failed') }
+    setConnectBusy(false)
+  }
 
   if (!info) return <div className="set-loading">Loading network info...</div>
 
   return (
     <div className="set-tab-content">
+      {/* ── WiFi Status ── */}
       <div className="set-section-header">
-        <h3>Network Configuration</h3>
+        <h3><Wifi size={15} strokeWidth={2} style={{ verticalAlign: 'middle', marginRight: 6 }} />WiFi</h3>
+        {wifiStatus?.connected
+          ? <button className="set-btn set-btn-danger" onClick={handleDisconnect}>Disconnect</button>
+          : <button className="set-btn" onClick={handleScan} disabled={scanning} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{scanning ? 'Scanning…' : <><RotateCcw size={14} /> Scan</>}</button>
+        }
       </div>
 
+      {wifiStatus && (
+        <div className={`wifi-status-card ${wifiStatus.connected ? 'wifi-connected' : 'wifi-disconnected'}`}>
+          <div className="wifi-status-icon">{wifiStatus.connected ? <Wifi size={22} /> : <WifiOff size={22} />}</div>
+          <div className="wifi-status-info">
+            {wifiStatus.connected ? (
+              <>
+                <div className="wifi-status-ssid">{wifiStatus.ssid}</div>
+                <div className="wifi-status-meta">
+                  {wifiStatus.ip_address && <span>{wifiStatus.ip_address}</span>}
+                  {wifiStatus.signal !== 0 && (
+                    <span style={{ marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {signalBars(wifiStatus.signal)} <span style={{ fontSize: 12, opacity: 0.7 }}>{wifiStatus.signal} dBm</span>
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="wifi-status-ssid" style={{ opacity: 0.5 }}>Not connected</div>
+            )}
+          </div>
+          {!wifiStatus.connected && (
+            <button className="set-btn" onClick={handleScan} disabled={scanning}>
+              {scanning ? 'Scanning…' : 'Scan for Networks'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Scan Results ── */}
+      {networks.length > 0 && (
+        <>
+          <div className="set-section-header" style={{ marginTop: 16 }}>
+            <h3>Available Networks</h3>
+          </div>
+          <div className="wifi-network-list">
+            {networks.map((net) => (
+              <div
+                key={net.ssid}
+                className={`wifi-network-row ${net.connected ? 'wifi-network-active' : ''}`}
+                onClick={() => { if (!net.connected) { setConnectModal(net); setPassword(''); setCountry(wifiStatus?.country || 'US'); setConnectError('') } }}
+              >
+                <span className="wifi-network-bars">{signalBars(net.signal)}</span>
+                <span className="wifi-network-ssid">{net.ssid}</span>
+                <span className="wifi-network-freq" style={{ fontSize: 11, opacity: 0.6 }}>{net.frequency}</span>
+                <span style={{ fontSize: 12, opacity: 0.7, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  {net.security === 'Open' ? <LockOpen size={12} /> : <Lock size={12} />} {net.security}
+                </span>
+                {net.connected
+                  ? <span className="wifi-network-connected-badge">Connected ✓</span>
+                  : <span className="wifi-network-join">Join →</span>
+                }
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Interfaces ── */}
+      <div className="set-section-header" style={{ marginTop: 24 }}>
+        <h3><Network size={15} strokeWidth={2} style={{ verticalAlign: 'middle', marginRight: 6 }} />Network Interfaces</h3>
+      </div>
       <div className="set-info-grid">
-        <div className="set-info-card">
-          <div className="set-info-label">Hostname</div>
-          <div className="set-info-value">{info.hostname}</div>
-        </div>
-        <div className="set-info-card">
-          <div className="set-info-label">Domain</div>
-          <div className="set-info-value">{info.domain}</div>
-        </div>
-        <div className="set-info-card">
-          <div className="set-info-label">DNS Servers</div>
-          <div className="set-info-value set-mono">{info.dns.join(', ')}</div>
-        </div>
+        <div className="set-info-card"><div className="set-info-label">Hostname</div><div className="set-info-value">{info.hostname}</div></div>
+        <div className="set-info-card"><div className="set-info-label">Domain</div><div className="set-info-value">{info.domain}</div></div>
+        <div className="set-info-card"><div className="set-info-label">DNS</div><div className="set-info-value set-mono">{info.dns.join(', ')}</div></div>
       </div>
-
-      <div className="set-section-header" style={{ marginTop: 20 }}>
-        <h3>Network Interfaces</h3>
-      </div>
-
-      <div className="set-iface-list">
+      <div className="set-iface-list" style={{ marginTop: 12 }}>
         {info.interfaces.map((iface) => (
           <div key={iface.name} className={`set-iface-card ${iface.state === 'up' ? '' : 'set-iface-down'}`}>
             <div className="set-iface-header">
-              <span className="set-iface-icon">{iface.type === 'wifi' ? '📶' : '🔌'}</span>
+              <span className="set-iface-icon">{iface.type === 'wifi' ? <Wifi size={14} /> : <Plug size={14} />}</span>
               <span className="set-iface-name">{iface.name}</span>
-              <span className={`set-iface-state ${iface.state === 'up' ? 'set-state-up' : 'set-state-down'}`}>
-                {iface.state}
-              </span>
+              <span className={`set-iface-state ${iface.state === 'up' ? 'set-state-up' : 'set-state-down'}`}>{iface.state}</span>
               {iface.speed && <span className="set-iface-speed">{iface.speed}</span>}
             </div>
             {iface.state === 'up' && (
               <div className="set-iface-body">
-                <div className="set-iface-row">
-                  <span>IP Address</span>
-                  <span className="set-mono">{iface.ipv4}</span>
-                </div>
-                <div className="set-iface-row">
-                  <span>Subnet Mask</span>
-                  <span className="set-mono">{iface.netmask}</span>
-                </div>
-                <div className="set-iface-row">
-                  <span>Gateway</span>
-                  <span className="set-mono">{iface.gateway}</span>
-                </div>
-                <div className="set-iface-row">
-                  <span>MAC Address</span>
-                  <span className="set-mono">{iface.mac}</span>
-                </div>
-                <div className="set-iface-row">
-                  <span>Method</span>
-                  <span>{iface.method.toUpperCase()}</span>
-                </div>
+                <div className="set-iface-row"><span>IP Address</span><span className="set-mono">{iface.ipv4}</span></div>
+                <div className="set-iface-row"><span>Subnet Mask</span><span className="set-mono">{iface.netmask}</span></div>
+                <div className="set-iface-row"><span>Gateway</span><span className="set-mono">{iface.gateway}</span></div>
+                <div className="set-iface-row"><span>MAC</span><span className="set-mono">{iface.mac}</span></div>
+                <div className="set-iface-row"><span>Method</span><span>{iface.method.toUpperCase()}</span></div>
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {/* ── Connect Modal ── */}
+      {connectModal && (
+        <div className="shr-overlay" onClick={() => setConnectModal(null)}>
+          <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
+            <div className="shr-wizard-header">
+              <h3>Join "{connectModal.ssid}"</h3>
+              <button className="shr-btn-icon" onClick={() => setConnectModal(null)}>✕</button>
+            </div>
+            {connectError && <div className="shr-wizard-error">{connectError}</div>}
+            <div className="shr-wizard-body">
+              <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', opacity: 0.7 }}>
+                {signalBars(connectModal.signal)}
+                <span style={{ fontSize: 13 }}>{connectModal.frequency} · {connectModal.security}</span>
+              </div>
+              {connectModal.security !== 'Open' && (
+                <label className="shr-field">
+                  <span>Password</span>
+                  <PasswordInput
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+                    placeholder="Network password"
+                    autoFocus
+                  />
+                </label>
+              )}
+              <label className="shr-field">
+                <span>Country code</span>
+                <input type="text" value={country} onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
+                  placeholder="US" maxLength={2} style={{ width: 60 }} />
+              </label>
+            </div>
+            <div className="shr-wizard-footer">
+              <button className="shr-btn" onClick={() => setConnectModal(null)}>Cancel</button>
+              <button className="shr-btn shr-btn-primary" onClick={handleConnect} disabled={connectBusy}>
+                {connectBusy ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -336,7 +639,7 @@ function ServicesTab() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api('/api/network/services')
+      const data = await api<{ services: ServiceInfo[] }>('/api/network/services')
       setServices(data.services)
     } catch { /* ignore */ }
   }, [])
@@ -406,11 +709,11 @@ function SecurityTab() {
 
   useEffect(() => {
     Promise.all([
-      api('/api/security/overview'),
-      api('/api/security/firewall'),
-      api('/api/security/fail2ban'),
-      api('/api/security/ssh'),
-      api('/api/security/tls'),
+      api<SecurityOverview>('/api/security/overview'),
+      api<{ enabled: boolean; default_policy: string; rules: FirewallRule[] }>('/api/security/firewall'),
+      api<{ enabled: boolean; jails: Fail2banJail[] }>('/api/security/fail2ban'),
+      api<Record<string, unknown>>('/api/security/ssh'),
+      api<Record<string, unknown>>('/api/security/tls'),
     ]).then(([o, fw, f2b, s, t]) => {
       setOverview(o)
       setFirewall(fw)
@@ -458,8 +761,8 @@ function SecurityTab() {
           {overview.issues.length > 0 && (
             <div className="sec-issues">
               {overview.issues.map((issue, i) => (
-                <div key={i} className={`sec-issue sec-issue-${issue.level}`}>
-                  {issue.level === 'warning' ? '⚠️' : 'ℹ️'} {issue.message}
+                <div key={i} className={`sec-issue sec-issue-${issue.level}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {issue.level === 'warning' ? <AlertTriangle size={14} /> : <Info size={14} />} {issue.message}
                 </div>
               ))}
             </div>
@@ -619,15 +922,26 @@ interface ThermalData {
 
 function ThermalTab() {
   const [data, setData] = useState<ThermalData | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api('/api/extras/thermal').then(setData).catch(() => {})
+    api<ThermalData>('/api/extras/thermal')
+      .then(setData)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load thermal data'))
   }, [])
 
+  if (error) return <div className="set-loading" style={{ color: '#ff5252' }}>Thermal error: {error}</div>
   if (!data) return <div className="set-loading">Loading thermal data...</div>
 
   const tempColor = (t: number) => t > 75 ? '#ff5252' : t > 60 ? '#ffa726' : '#66bb6a'
   const tempLabel = (t: number) => t > 75 ? 'HOT' : t > 60 ? 'WARM' : 'NORMAL'
+
+  const cpuTemp = data.cpu_temp ?? 0
+  const gpuTemp = data.gpu_temp ?? 0
+  const history = data.temp_history_24h ?? { min: cpuTemp, max: cpuTemp, avg: cpuTemp }
+  const throttleFlags = data.throttle_flags ?? {}
+  const fan = data.fan ?? { present: false, mode: 'N/A', speed_pct: 0, rpm: 0 }
+  const fanCurves = data.fan_curves ?? {}
 
   return (
     <div className="set-tab-content">
@@ -635,22 +949,22 @@ function ThermalTab() {
 
       <div className="thm-temp-cards">
         <div className="thm-temp-card">
-          <div className="thm-temp-icon">🧠</div>
-          <div className="thm-temp-val" style={{ color: tempColor(data.cpu_temp) }}>{data.cpu_temp.toFixed(1)}°C</div>
+          <div className="thm-temp-icon"><Cpu size={28} /></div>
+          <div className="thm-temp-val" style={{ color: tempColor(cpuTemp) }}>{cpuTemp.toFixed(1)}°C</div>
           <div className="thm-temp-label">CPU</div>
-          <div className="thm-temp-status" style={{ color: tempColor(data.cpu_temp) }}>{tempLabel(data.cpu_temp)}</div>
+          <div className="thm-temp-status" style={{ color: tempColor(cpuTemp) }}>{tempLabel(cpuTemp)}</div>
         </div>
         <div className="thm-temp-card">
-          <div className="thm-temp-icon">🎮</div>
-          <div className="thm-temp-val" style={{ color: tempColor(data.gpu_temp) }}>{data.gpu_temp.toFixed(1)}°C</div>
+          <div className="thm-temp-icon"><Monitor size={28} /></div>
+          <div className="thm-temp-val" style={{ color: tempColor(gpuTemp) }}>{gpuTemp.toFixed(1)}°C</div>
           <div className="thm-temp-label">GPU</div>
-          <div className="thm-temp-status" style={{ color: tempColor(data.gpu_temp) }}>{tempLabel(data.gpu_temp)}</div>
+          <div className="thm-temp-status" style={{ color: tempColor(gpuTemp) }}>{tempLabel(gpuTemp)}</div>
         </div>
         <div className="thm-temp-card">
-          <div className="thm-temp-icon">📊</div>
-          <div className="thm-temp-val">{data.temp_history_24h.avg.toFixed(1)}°C</div>
+          <div className="thm-temp-icon"><Thermometer size={28} /></div>
+          <div className="thm-temp-val">{(history.avg ?? 0).toFixed(1)}°C</div>
           <div className="thm-temp-label">24h Average</div>
-          <div className="thm-temp-range">{data.temp_history_24h.min.toFixed(1)}° — {data.temp_history_24h.max.toFixed(1)}°</div>
+          <div className="thm-temp-range">{(history.min ?? 0).toFixed(1)}° — {(history.max ?? 0).toFixed(1)}°</div>
         </div>
       </div>
 
@@ -662,33 +976,38 @@ function ThermalTab() {
         </span>
       </div>
       <div className="thm-throttle-grid">
-        {Object.entries(data.throttle_flags).map(([key, val]) => (
+        {Object.entries(throttleFlags).map(([key, val]) => (
           <div key={key} className={`thm-throttle-item ${val ? 'thm-throttle-active' : ''}`}>
             <span className={`sec-dot ${val ? 'sec-dot-bad' : 'sec-dot-ok'}`} />
             {key.replace(/_/g, ' ')}
           </div>
         ))}
+        {Object.keys(throttleFlags).length === 0 && (
+          <div className="thm-throttle-item" style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            Throttle data unavailable
+          </div>
+        )}
       </div>
 
       {/* Fan Control */}
-      {data.fan.present && (
+      {fan.present && (
         <>
           <div className="set-section-header" style={{ marginTop: 20 }}><h3>Fan Control</h3></div>
           <div className="thm-fan-card">
             <div className="thm-fan-info">
               <div className="thm-fan-mode">
-                Mode: <strong>{data.fan.mode}</strong>
+                Mode: <strong>{fan.mode}</strong>
               </div>
-              <div className="thm-fan-speed">Speed: {data.fan.speed_pct}% ({data.fan.rpm} RPM)</div>
+              <div className="thm-fan-speed">Speed: {fan.speed_pct}% ({fan.rpm} RPM)</div>
               <div className="thm-fan-bar-track">
-                <div className="thm-fan-bar-fill" style={{ width: `${data.fan.speed_pct}%` }} />
+                <div className="thm-fan-bar-fill" style={{ width: `${fan.speed_pct}%` }} />
               </div>
             </div>
             <div className="thm-fan-modes">
-              {Object.keys(data.fan_curves).map((mode) => (
+              {Object.keys(fanCurves).map((mode) => (
                 <button
                   key={mode}
-                  className={`thm-fan-mode-btn ${data.fan.mode === mode ? 'active' : ''}`}
+                  className={`thm-fan-mode-btn ${fan.mode === mode ? 'active' : ''}`}
                 >
                   {mode}
                 </button>
@@ -723,7 +1042,7 @@ function UpsTab() {
   const [data, setData] = useState<UpsData | null>(null)
 
   useEffect(() => {
-    api('/api/extras/ups').then(setData).catch(() => {})
+    api<UpsData>('/api/extras/ups').then(setData).catch(() => {})
   }, [])
 
   if (!data) return <div className="set-loading">Loading UPS status...</div>
@@ -733,7 +1052,7 @@ function UpsTab() {
       <div className="set-tab-content">
         <div className="set-section-header"><h3>UPS / Power</h3></div>
         <div className="ups-not-connected">
-          <div className="ups-nc-icon">🔌</div>
+          <div className="ups-nc-icon"><Plug size={40} /></div>
           <div className="ups-nc-text">No UPS detected</div>
           <div className="ups-nc-hint">Connect a USB UPS and it will be automatically detected via NUT.</div>
         </div>
@@ -840,96 +1159,305 @@ function UpsTab() {
 
 // ── Updates Tab ──────────────────────────────────────────────────
 
-interface UpdateData {
+// ── OTA Status types ─────────────────────────────────────────────
+interface OtaPackageInfo {
+  version: string
+  built_at: string
+  components: string[]
+  size_bytes: number
+  filename?: string
+}
+
+interface OtaProgress {
+  phase: string
+  percent: number
+  message: string
+  status: 'running' | 'complete' | 'error'
+  timestamp: string
+}
+
+interface OtaRollback {
+  version: string
+  backed_up_at: string
+}
+
+interface OtaStatus {
   current_version: string
-  latest_version: string
-  update_available: boolean
-  channel: string
-  last_check: string
-  auto_check: boolean
-  auto_install: boolean
-  partition_scheme: string
-  active_partition: string
-  changelog: { version: string; date: string; changes: string[] }[]
-  rollback_available: boolean
-  rollback_version: string
+  staged: OtaPackageInfo | null
+  progress: OtaProgress | null
+  rollback: OtaRollback | null
+}
+
+function fmtBytes(b: number) {
+  if (b < 1024) return `${b} B`
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function UpdatesTab() {
-  const [data, setData] = useState<UpdateData | null>(null)
+  const [status, setStatus] = useState<OtaStatus | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState('')
+  const [applying, setApplying] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [confirm, setConfirm] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const errCountRef = useRef(0)
 
-  useEffect(() => {
-    api('/api/extras/updates').then(setData).catch(() => {})
+  // ── polling ──────────────────────────────────────────────────
+  // Always poll every 1.5 s while the tab is open.
+  // This means the UI automatically picks up an in-progress update even if the
+  // user opens Settings > Updates after apply was already started (e.g. after a
+  // backend restart), without needing any manual refresh.
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await api<OtaStatus>('/api/update/status')
+      errCountRef.current = 0
+      setReconnecting(false)
+      setStatus(s)
+      // If we detect a running update we weren't tracking yet, enter applying state
+      if (s.progress?.status === 'running') setApplying(true)
+      // Clear applying when done
+      if (s.progress?.status === 'complete' || s.progress?.status === 'error') {
+        setApplying(false)
+      }
+    } catch {
+      // Backend is restarting — count consecutive failures before showing indicator
+      errCountRef.current += 1
+      if (errCountRef.current >= 2) setReconnecting(true)
+    }
   }, [])
 
-  if (!data) return <div className="set-loading">Loading update status...</div>
+  useEffect(() => {
+    loadStatus()
+    pollRef.current = setInterval(loadStatus, 1500)
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [loadStatus])
+
+  // ── upload ───────────────────────────────────────────────────
+  const handleFile = useCallback(async (file: File) => {
+    setUploadErr('')
+    if (!file.name.endsWith('.nasos')) {
+      setUploadErr('File must have a .nasos extension. Build one with scripts/build-ota.sh')
+      return
+    }
+    setUploading(true)
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      const token = localStorage.getItem('nasos_token')
+      const res = await fetch('/api/update/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Upload failed')
+      }
+      await loadStatus()
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : 'Upload failed')
+    }
+    setUploading(false)
+  }, [loadStatus])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }, [handleFile])
+
+  // ── apply ────────────────────────────────────────────────────
+  const handleApply = async () => {
+    setConfirm(false)
+    setApplying(true)
+    try {
+      await api('/api/update/apply', { method: 'POST' })
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : 'Apply failed')
+      setApplying(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    try { await api('/api/update/staged', { method: 'DELETE' }) } catch { /* ignore */ }
+    await loadStatus()
+  }
+
+  const handleRollback = async () => {
+    try { await api('/api/update/rollback', { method: 'POST' }) } catch { /* ignore */ }
+    setApplying(true)
+  }
+
+  if (!status) return <div className="set-loading">Loading update status...</div>
+
+  const { current_version, staged, progress, rollback } = status
+  const isRunning = applying || (progress?.status === 'running')
 
   return (
     <div className="set-tab-content">
-      <div className="set-section-header">
-        <h3>System Updates</h3>
-        {data.update_available && <span className="sec-badge upd-badge-avail">Update Available</span>}
-      </div>
-
+      {/* ── Current version ── */}
+      <div className="set-section-header"><h3>OTA Updates</h3></div>
       <div className="upd-version-row">
         <div className="upd-ver-card">
-          <div className="upd-ver-label">Current Version</div>
-          <div className="upd-ver-value">v{data.current_version}</div>
+          <div className="upd-ver-label">Installed Version</div>
+          <div className="upd-ver-value">v{current_version}</div>
         </div>
-        {data.update_available && (
+        {staged && (
           <>
-            <div className="upd-ver-arrow">→</div>
+            <div className="upd-ver-arrow">&rarr;</div>
             <div className="upd-ver-card upd-ver-new">
-              <div className="upd-ver-label">Latest Version</div>
-              <div className="upd-ver-value">v{data.latest_version}</div>
+              <div className="upd-ver-label">Staged Version</div>
+              <div className="upd-ver-value">v{staged.version}</div>
             </div>
           </>
         )}
       </div>
 
-      <div className="set-info-grid" style={{ marginTop: 16 }}>
-        <div className="set-info-card">
-          <div className="set-info-label">Channel</div>
-          <div className="set-info-value">{data.channel}</div>
-        </div>
-        <div className="set-info-card">
-          <div className="set-info-label">Partition Scheme</div>
-          <div className="set-info-value">{data.partition_scheme}</div>
-        </div>
-        <div className="set-info-card">
-          <div className="set-info-label">Active Partition</div>
-          <div className="set-info-value set-mono">{data.active_partition}</div>
-        </div>
-        <div className="set-info-card">
-          <div className="set-info-label">Auto Check</div>
-          <div className="set-info-value">{data.auto_check ? 'Yes' : 'No'}</div>
-        </div>
-      </div>
-
-      {data.rollback_available && (
-        <div className="upd-rollback">
-          <span>Rollback available to v{data.rollback_version}</span>
-          <button className="set-btn">Rollback</button>
+      {/* ── Reconnecting banner (shown while backend is restarting mid-update) ── */}
+      {reconnecting && (
+        <div className="upd-reconnecting">
+          <span className="upd-reconnect-spin">↻</span>
+          Reconnecting to backend…
         </div>
       )}
 
-      {/* Changelog */}
-      <div className="set-section-header" style={{ marginTop: 20 }}><h3>Changelog</h3></div>
-      <div className="upd-changelog">
-        {data.changelog.map((entry) => (
-          <div key={entry.version} className="upd-cl-entry">
-            <div className="upd-cl-header">
-              <span className="upd-cl-version">v{entry.version}</span>
-              <span className="upd-cl-date">{entry.date}</span>
-            </div>
-            <ul className="upd-cl-changes">
-              {entry.changes.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
+      {/* ── Apply progress ── */}
+      {isRunning && progress && (
+        <div className="upd-progress-box">
+          <div className="upd-progress-header">
+            <span className="upd-progress-phase">{progress.phase.replace(/_/g, ' ')}</span>
+            <span className="upd-progress-pct">{progress.percent}%</span>
           </div>
-        ))}
-      </div>
+          <div className="upd-progress-track">
+            <div
+              className="upd-progress-fill"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+          <div className="upd-progress-msg">{progress.message}</div>
+          {progress.percent < 80 && (
+            <div className="upd-progress-note">
+              The backend will restart — this page will reconnect automatically.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Complete / error result ── */}
+      {!isRunning && progress?.status === 'complete' && (
+        <div className="upd-result upd-result-ok">
+          Update to v{staged?.version || ''} applied successfully.
+          <button className="set-btn" style={{ marginLeft: 12 }}
+            onClick={() => window.location.reload()}>Reload UI</button>
+        </div>
+      )}
+      {!isRunning && progress?.status === 'error' && (
+        <div className="upd-result upd-result-err">Update failed: {progress.message}</div>
+      )}
+
+      {/* ── Staged package ── */}
+      {staged && !isRunning && (
+        <>
+          <div className="set-section-header" style={{ marginTop: 20 }}>
+            <h3>Staged Package</h3>
+          </div>
+          <div className="upd-staged-card">
+            <div className="upd-staged-info">
+              <div className="upd-staged-row">
+                <span>Version</span><strong>v{staged.version}</strong>
+              </div>
+              <div className="upd-staged-row">
+                <span>Built</span><span>{new Date(staged.built_at).toLocaleString()}</span>
+              </div>
+              <div className="upd-staged-row">
+                <span>Components</span>
+                <span>{staged.components.map(c => (
+                  <span key={c} className="upd-component-badge">{c}</span>
+                ))}</span>
+              </div>
+              <div className="upd-staged-row">
+                <span>Size</span><span>{fmtBytes(staged.size_bytes)}</span>
+              </div>
+            </div>
+            <div className="upd-staged-actions">
+              <button className="set-btn" onClick={handleCancel}>Cancel</button>
+              <button className="set-btn set-btn-primary" onClick={() => setConfirm(true)}>
+                Apply Update
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Upload drop zone ── */}
+      {!staged && !isRunning && (
+        <>
+          <div className="set-section-header" style={{ marginTop: 20 }}><h3>Upload Update Package</h3></div>
+          {uploadErr && <div className="upd-result upd-result-err" style={{ marginBottom: 10 }}>{uploadErr}</div>}
+          <div
+            className={`upd-dropzone${dragOver ? ' upd-dropzone-over' : ''}${uploading ? ' upd-dropzone-busy' : ''}`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => !uploading && fileRef.current?.click()}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".nasos"
+              style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+            />
+            {uploading ? (
+              <><div className="upd-drop-icon"><RotateCcw size={24} /></div><div>Uploading and validating…</div></>
+            ) : (
+              <>
+                <div className="upd-drop-icon">&#8593;</div>
+                <div className="upd-drop-title">Drop a <code>.nasos</code> file here</div>
+                <div className="upd-drop-hint">or click to browse — build one with <code>./scripts/build-ota.sh</code></div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Rollback ── */}
+      {rollback && !isRunning && (
+        <div className="upd-rollback">
+          <div>
+            <div className="upd-rollback-label">Rollback available</div>
+            <div className="upd-rollback-ver">Previous install: v{rollback.version}</div>
+          </div>
+          <button className="set-btn" onClick={handleRollback}>Restore v{rollback.version}</button>
+        </div>
+      )}
+
+      {/* ── Confirm dialog ── */}
+      {confirm && staged && (
+        <div className="shr-overlay" onClick={() => setConfirm(false)}>
+          <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
+            <div className="shr-wizard-header">
+              <h3>Apply Update?</h3>
+              <button className="shr-btn-icon" onClick={() => setConfirm(false)}>✕</button>
+            </div>
+            <div className="shr-wizard-body">
+              <p>This will install <strong>v{staged.version}</strong> and restart the backend service.</p>
+              <p>Components: {staged.components.join(', ')}</p>
+              {staged.components.includes('electron') && (
+                <p style={{ color: '#ffa726' }}>The desktop UI will also restart.</p>
+              )}
+            </div>
+            <div className="shr-wizard-footer">
+              <button className="shr-btn" onClick={() => setConfirm(false)}>Cancel</button>
+              <button className="shr-btn shr-btn-primary" onClick={handleApply}>Apply Now</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -947,12 +1475,12 @@ function AvahiTab() {
   const [data, setData] = useState<AvahiData | null>(null)
 
   useEffect(() => {
-    api('/api/extras/avahi').then(setData).catch(() => {})
+    api<AvahiData>('/api/extras/avahi').then(setData).catch(() => {})
   }, [])
 
   if (!data) return <div className="set-loading">Loading Avahi status...</div>
 
-  const deviceIcon: Record<string, string> = { computer: '💻', phone: '📱', printer: '🖨️' }
+  const deviceIcon: Record<string, JSX.Element> = { computer: <Monitor size={18} />, phone: <Smartphone size={18} />, printer: <Printer size={18} /> }
 
   return (
     <div className="set-tab-content">
@@ -985,7 +1513,7 @@ function AvahiTab() {
       <div className="ava-device-list">
         {data.discovered_devices.map((dev) => (
           <div key={dev.name} className="ava-device-card">
-            <span className="ava-device-icon">{deviceIcon[dev.type] || '📟'}</span>
+            <span className="ava-device-icon">{deviceIcon[dev.type] || <Cpu size={18} />}</span>
             <div className="ava-device-info">
               <div className="ava-device-name">{dev.name}</div>
               <div className="ava-device-addr set-mono">{dev.address}</div>
@@ -1013,7 +1541,7 @@ function TimeMachineTab() {
   const [data, setData] = useState<TimeMachineData | null>(null)
 
   useEffect(() => {
-    api('/api/extras/timemachine').then(setData).catch(() => {})
+    api<TimeMachineData>('/api/extras/timemachine').then(setData).catch(() => {})
   }, [])
 
   if (!data) return <div className="set-loading">Loading Time Machine config...</div>
@@ -1068,7 +1596,7 @@ function TimeMachineTab() {
           <div className="tm-mac-list">
             {data.connected_macs.map((mac) => (
               <div key={mac.hostname} className="tm-mac-card">
-                <span className="tm-mac-icon">🍎</span>
+                <span className="tm-mac-icon"><Monitor size={20} strokeWidth={1.5} /></span>
                 <div className="tm-mac-info">
                   <div className="tm-mac-name">{mac.hostname}</div>
                   <div className="tm-mac-detail">Backup size: {mac.size_gb} GB</div>
@@ -1082,3 +1610,78 @@ function TimeMachineTab() {
     </div>
   )
 }
+
+// ── Personalization Tab ──────────────────────────────────────────
+
+const WALLPAPERS = [
+  { id: 'cosmic', label: 'Cosmic', url: '/wallpapers/cosmic.png' },
+  { id: 'abstract', label: 'Abstract', url: '/wallpapers/abstract.png' },
+  { id: 'aurora', label: 'Aurora', url: '/wallpapers/aurora.png' },
+  { id: 'mesh', label: 'Mesh', url: '/wallpapers/mesh.png' },
+]
+
+function PersonalizationTab() {
+  const wallpaper = useSystemStore((s) => s.wallpaper)
+  const setWallpaper = useSystemStore((s) => s.setWallpaper)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setWallpaper(reader.result)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header">
+        <h3>Desktop Wallpaper</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="set-btn" onClick={() => fileRef.current?.click()}>
+            ⬆ Upload
+          </button>
+          <button className="set-btn" onClick={() => setWallpaper(null)}>
+            ✕ Reset to Default
+          </button>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleUpload}
+        />
+      </div>
+
+      <div className="wp-gallery">
+        {/* Default (no wallpaper) option */}
+        <button
+          className={`wp-thumb ${wallpaper === null ? 'wp-active' : ''}`}
+          onClick={() => setWallpaper(null)}
+        >
+          <div className="wp-thumb-default">
+            <span>Default</span>
+          </div>
+          <span className="wp-thumb-label">Default</span>
+        </button>
+
+        {WALLPAPERS.map((wp) => (
+          <button
+            key={wp.id}
+            className={`wp-thumb ${wallpaper === wp.url ? 'wp-active' : ''}`}
+            onClick={() => setWallpaper(wp.url)}
+          >
+            <img src={wp.url} alt={wp.label} className="wp-thumb-img" />
+            <span className="wp-thumb-label">{wp.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+

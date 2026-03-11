@@ -1,3 +1,8 @@
+import {
+  type LucideIcon,
+  Archive, Box, Globe, HardDrive, Package, ScrollText, Settings, Share2, Users,
+} from 'lucide-react'
+
 interface PlaceholderAppProps {
   appId: string
   title: string
@@ -16,16 +21,17 @@ export function PlaceholderApp({ appId, title }: PlaceholderAppProps) {
   )
 }
 
-function getAppIcon(appId: string): string {
-  const icons: Record<string, string> = {
-    'storage-manager': '💾',
-    'share-manager': '🔗',
-    'user-manager': '👥',
-    'docker-manager': '🐳',
-    'network-settings': '🌐',
-    'backup-manager': '💿',
-    'log-viewer': '📋',
-    'settings': '⚙️',
+function getAppIcon(appId: string): JSX.Element {
+  const iconMap: Record<string, LucideIcon> = {
+    'storage-manager': HardDrive,
+    'share-manager': Share2,
+    'user-manager': Users,
+    'docker-manager': Box,
+    'network-settings': Globe,
+    'backup-manager': Archive,
+    'log-viewer': ScrollText,
+    'settings': Settings,
   }
-  return icons[appId] ?? '📦'
+  const Icon = iconMap[appId] ?? Package
+  return <Icon size={48} />
 }

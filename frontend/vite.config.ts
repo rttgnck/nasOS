@@ -19,6 +19,11 @@ function suppressWsErrors(): PluginOption {
 
 export default defineConfig({
   plugins: [react(), suppressWsErrors()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/__tests__/setup.ts'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

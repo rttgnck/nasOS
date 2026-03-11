@@ -1,13 +1,16 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import backup, docker, extras, files, logs, network, security, shares, storage, system, users
+from app.api import auth, backup, docker, extras, files, logs, network, security, shares, storage, system, update, users, wifi
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import async_session, init_db
+from app.services.share_service import seed_default_shares, ensure_smb_global_settings
+from app.services.user_service import ensure_admin_user
+from app.core.security import get_current_user
 from app.ws.metrics import metrics_ws
 
 
@@ -16,6 +19,13 @@ async def lifespan(app: FastAPI):
     # Ensure data directory exists
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     await init_db()
+    async with async_session() as db:
+        await seed_default_shares(db)
+    # Patch any legacy smb.conf global settings on existing deployments
+    # (e.g. 'server smb encrypt = desired' → 'if_required' for macOS compat)
+    ensure_smb_global_settings()
+    # Ensure the built-in admin user exists with Samba access + change-password flag
+    ensure_admin_user()
     yield
 
 
@@ -34,18 +44,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API routes
-app.include_router(system.router)
-app.include_router(files.router)
-app.include_router(storage.router)
-app.include_router(shares.router)
-app.include_router(users.router)
-app.include_router(network.router)
-app.include_router(docker.router)
-app.include_router(backup.router)
-app.include_router(security.router)
-app.include_router(extras.router)
-app.include_router(logs.router)
+# ── Public routes (no auth required) ─────────────────────────────────
+app.include_router(auth.router)
+app.include_router(system.router)  # /api/system/health is public for health checks
+
+# ── Protected routes (JWT required) ──────────────────────────────────
+_auth = [Depends(get_current_user)]
+
+app.include_router(files.router, dependencies=_auth)
+app.include_router(storage.router, dependencies=_auth)
+app.include_router(shares.router, dependencies=_auth)
+app.include_router(users.router, dependencies=_auth)
+app.include_router(network.router, dependencies=_auth)
+app.include_router(wifi.router, dependencies=_auth)
+app.include_router(docker.router, dependencies=_auth)
+app.include_router(backup.router, dependencies=_auth)
+app.include_router(security.router, dependencies=_auth)
+app.include_router(extras.router, dependencies=_auth)
+app.include_router(logs.router, dependencies=_auth)
+app.include_router(update.router, dependencies=_auth)
 
 # WebSocket
 app.websocket("/ws/metrics")(metrics_ws)

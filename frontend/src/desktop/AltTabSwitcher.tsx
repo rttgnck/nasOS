@@ -1,16 +1,20 @@
+import {
+  type LucideIcon,
+  FolderOpen, HardDrive, Share2, Users, Box, Globe, Activity, Archive, ScrollText, Settings, Package,
+} from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 
-const APP_ICONS: Record<string, string> = {
-  'file-manager': '📁',
-  'storage-manager': '💾',
-  'share-manager': '🔗',
-  'user-manager': '👥',
-  'docker-manager': '🐳',
-  'network-settings': '🌐',
-  'system-monitor': '📊',
-  'backup-manager': '💿',
-  'log-viewer': '📋',
-  'settings': '⚙️',
+const APP_ICONS: Record<string, LucideIcon> = {
+  'file-manager': FolderOpen,
+  'storage-manager': HardDrive,
+  'share-manager': Share2,
+  'user-manager': Users,
+  'docker-manager': Box,
+  'network-settings': Globe,
+  'system-monitor': Activity,
+  'backup-manager': Archive,
+  'log-viewer': ScrollText,
+  'settings': Settings,
 }
 
 interface AltTabSwitcherProps {
@@ -33,7 +37,7 @@ export function AltTabSwitcher({ selectedIndex }: AltTabSwitcherProps) {
             data-selected={i === selectedIndex}
           >
             <span className="alt-tab-icon">
-              {APP_ICONS[win.appId] ?? '📦'}
+              {(() => { const Icon = APP_ICONS[win.appId] ?? Package; return <Icon size={20} /> })()}
             </span>
             <span className="alt-tab-title">{win.title}</span>
           </div>

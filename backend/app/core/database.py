@@ -18,6 +18,9 @@ async def get_db() -> AsyncSession:
 async def init_db():
     """Create tables on startup."""
     from app.models.base import Base
+    # Explicitly import all models so their tables are registered with Base.metadata
+    import app.models.share  # noqa: F401
+    import app.models.backup  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -1,21 +1,25 @@
-"""Backup management service.
+"""Backup management service — persists to SQLite via SQLAlchemy.
 
-On Linux: wraps rsync, rclone, btrfs snapshots.
-On macOS (dev): returns mock data.
+On Linux: wraps rsync/rclone for real backup execution.
+On macOS (dev): simulates backup runs with mock delays.
 """
 
+import asyncio
 import platform
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.backup import BackupJob, CloudRemote
+
 _is_linux = platform.system() == "Linux"
 
-# ── Mock data ──────────────────────────────────────────────────────
 
-_now = datetime.now()
+# ── Seed data — inserted on first run when tables are empty ──────────
 
-_MOCK_JOBS = [
+_SEED_JOBS = [
     {
-        "id": 1,
         "name": "Daily Media Backup",
         "source": "/mnt/data/media",
         "destination": "/mnt/backup/media",
@@ -23,13 +27,11 @@ _MOCK_JOBS = [
         "schedule": "Daily at 02:00",
         "retention": "7 days",
         "enabled": True,
-        "last_run": (_now - timedelta(hours=8)).isoformat(),
+        "last_run": (datetime.now() - timedelta(hours=8)).isoformat(),
         "last_status": "success",
         "last_size": "2.4 GB",
-        "next_run": (_now + timedelta(hours=16)).isoformat(),
     },
     {
-        "id": 2,
         "name": "Weekly Full Backup",
         "source": "/mnt/data",
         "destination": "b2:nasos-backups/weekly",
@@ -37,13 +39,11 @@ _MOCK_JOBS = [
         "schedule": "Sunday at 03:00",
         "retention": "4 weeks",
         "enabled": True,
-        "last_run": (_now - timedelta(days=3)).isoformat(),
+        "last_run": (datetime.now() - timedelta(days=3)).isoformat(),
         "last_status": "success",
         "last_size": "48.7 GB",
-        "next_run": (_now + timedelta(days=4)).isoformat(),
     },
     {
-        "id": 3,
         "name": "Photos to Google Drive",
         "source": "/mnt/data/photos",
         "destination": "gdrive:NAS-Photos",
@@ -51,13 +51,11 @@ _MOCK_JOBS = [
         "schedule": "Every 6 hours",
         "retention": "30 days",
         "enabled": True,
-        "last_run": (_now - timedelta(hours=2)).isoformat(),
+        "last_run": (datetime.now() - timedelta(hours=2)).isoformat(),
         "last_status": "success",
         "last_size": "856 MB",
-        "next_run": (_now + timedelta(hours=4)).isoformat(),
     },
     {
-        "id": 4,
         "name": "Config Backup",
         "source": "/opt/nasos/config",
         "destination": "/mnt/backup/config",
@@ -65,87 +63,168 @@ _MOCK_JOBS = [
         "schedule": "Daily at 00:00",
         "retention": "14 days",
         "enabled": False,
-        "last_run": (_now - timedelta(days=5)).isoformat(),
+        "last_run": (datetime.now() - timedelta(days=5)).isoformat(),
         "last_status": "failed",
         "last_size": "0 B",
-        "next_run": None,
     },
 ]
 
+_SEED_REMOTES = [
+    {"name": "b2", "remote_type": "Backblaze B2", "bucket": "nasos-backups", "status": "connected"},
+    {"name": "gdrive", "remote_type": "Google Drive", "bucket": "", "status": "connected"},
+    {"name": "s3", "remote_type": "Amazon S3", "bucket": "", "status": "not configured"},
+]
+
+# Mock snapshots (not persisted — these are filesystem-level)
 _MOCK_SNAPSHOTS = [
-    {"id": "snap-001", "name": "pre-update-2024-03", "path": "/mnt/data", "created": (_now - timedelta(days=7)).isoformat(), "size": "12.3 GB"},
-    {"id": "snap-002", "name": "daily-auto", "path": "/mnt/data", "created": (_now - timedelta(days=1)).isoformat(), "size": "128 MB"},
-    {"id": "snap-003", "name": "daily-auto", "path": "/mnt/data", "created": (_now - timedelta(hours=12)).isoformat(), "size": "64 MB"},
+    {"id": "snap-001", "name": "pre-update-2024-03", "path": "/mnt/data", "created": (datetime.now() - timedelta(days=7)).isoformat(), "size": "12.3 GB"},
+    {"id": "snap-002", "name": "daily-auto", "path": "/mnt/data", "created": (datetime.now() - timedelta(days=1)).isoformat(), "size": "128 MB"},
+    {"id": "snap-003", "name": "daily-auto", "path": "/mnt/data", "created": (datetime.now() - timedelta(hours=12)).isoformat(), "size": "64 MB"},
 ]
 
-_CLOUD_REMOTES = [
-    {"name": "b2", "type": "Backblaze B2", "status": "connected"},
-    {"name": "gdrive", "type": "Google Drive", "status": "connected"},
-    {"name": "s3", "type": "Amazon S3", "status": "not configured"},
-]
 
-_job_counter = len(_MOCK_JOBS)
+async def _ensure_seed_data(db: AsyncSession):
+    """Insert seed data if tables are empty (first run)."""
+    result = await db.execute(select(BackupJob).limit(1))
+    if result.scalar_one_or_none() is None:
+        for data in _SEED_JOBS:
+            db.add(BackupJob(**data))
+        await db.commit()
 
-
-def get_backup_jobs() -> list[dict]:
-    return _MOCK_JOBS
-
-
-def get_snapshots() -> list[dict]:
-    return _MOCK_SNAPSHOTS
-
-
-def get_cloud_remotes() -> list[dict]:
-    return _CLOUD_REMOTES
+    result = await db.execute(select(CloudRemote).limit(1))
+    if result.scalar_one_or_none() is None:
+        for data in _SEED_REMOTES:
+            db.add(CloudRemote(**data))
+        await db.commit()
 
 
-def create_backup_job(data: dict) -> dict:
-    global _job_counter
-    _job_counter += 1
-    job = {
-        "id": _job_counter,
-        "name": data.get("name", "Untitled"),
-        "source": data.get("source", ""),
-        "destination": data.get("destination", ""),
-        "dest_type": data.get("dest_type", "local"),
-        "schedule": data.get("schedule", "Manual"),
-        "retention": data.get("retention", "7 days"),
-        "enabled": True,
-        "last_run": None,
-        "last_status": None,
-        "last_size": "0 B",
-        "next_run": None,
-    }
-    _MOCK_JOBS.append(job)
-    return job
+# ── CRUD Operations ──────────────────────────────────────────────────
+
+async def get_backup_jobs(db: AsyncSession) -> list[dict]:
+    await _ensure_seed_data(db)
+    result = await db.execute(select(BackupJob).order_by(BackupJob.id))
+    jobs = result.scalars().all()
+    return [_job_to_dict(j) for j in jobs]
 
 
-def delete_backup_job(job_id: int) -> bool:
-    idx = next((i for i, j in enumerate(_MOCK_JOBS) if j["id"] == job_id), None)
-    if idx is not None:
-        _MOCK_JOBS.pop(idx)
-        return True
-    return False
+async def create_backup_job(db: AsyncSession, data: dict) -> dict:
+    job = BackupJob(**data)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return _job_to_dict(job)
 
 
-def toggle_backup_job(job_id: int) -> dict | None:
-    job = next((j for j in _MOCK_JOBS if j["id"] == job_id), None)
+async def delete_backup_job(db: AsyncSession, job_id: int) -> bool:
+    job = await db.get(BackupJob, job_id)
+    if not job:
+        return False
+    await db.delete(job)
+    await db.commit()
+    return True
+
+
+async def toggle_backup_job(db: AsyncSession, job_id: int) -> dict | None:
+    job = await db.get(BackupJob, job_id)
     if not job:
         return None
-    job["enabled"] = not job["enabled"]
-    return job
+    job.enabled = not job.enabled
+    await db.commit()
+    await db.refresh(job)
+    return _job_to_dict(job)
 
 
-def run_backup_now(job_id: int) -> dict:
+async def run_backup_now(db: AsyncSession, job_id: int) -> dict:
     """Trigger a backup job immediately."""
-    job = next((j for j in _MOCK_JOBS if j["id"] == job_id), None)
+    job = await db.get(BackupJob, job_id)
     if not job:
         return {"ok": False, "error": "Job not found"}
 
-    if not _is_linux:
-        job["last_run"] = datetime.now().isoformat()
-        job["last_status"] = "success"
-        return {"ok": True, "job_id": job_id}
+    # Mark as running
+    job.last_status = "running"
+    job.last_run = datetime.now().isoformat()
+    await db.commit()
 
-    # Real implementation would spawn rsync/rclone subprocess
-    return {"ok": True, "job_id": job_id}
+    if not _is_linux:
+        # Simulate a backup run (short delay, then success)
+        await asyncio.sleep(2)
+        job.last_status = "success"
+        job.last_size = "1.2 GB"
+        await db.commit()
+        return {"ok": True, "job_id": job_id, "status": "success"}
+
+    # Real Linux: spawn rsync or rclone subprocess
+    try:
+        import subprocess
+
+        if job.dest_type == "local":
+            proc = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["rsync", "-avz", "--delete", f"{job.source}/", job.destination],
+                    capture_output=True, text=True, timeout=3600,
+                )
+            )
+        else:
+            proc = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["rclone", "sync", job.source, job.destination, "--progress"],
+                    capture_output=True, text=True, timeout=3600,
+                )
+            )
+
+        if proc.returncode == 0:
+            job.last_status = "success"
+        else:
+            job.last_status = "failed"
+
+        await db.commit()
+        return {"ok": True, "job_id": job_id, "status": job.last_status}
+    except Exception as e:
+        job.last_status = "failed"
+        await db.commit()
+        return {"ok": False, "error": str(e)}
+
+
+# ── Snapshots & Remotes ──────────────────────────────────────────────
+
+async def get_snapshots() -> list[dict]:
+    """Get filesystem snapshots (btrfs/zfs). Mock for now."""
+    return _MOCK_SNAPSHOTS
+
+
+async def get_cloud_remotes(db: AsyncSession) -> list[dict]:
+    await _ensure_seed_data(db)
+    result = await db.execute(select(CloudRemote).order_by(CloudRemote.name))
+    remotes = result.scalars().all()
+    return [_remote_to_dict(r) for r in remotes]
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+def _job_to_dict(job: BackupJob) -> dict:
+    return {
+        "id": job.id,
+        "name": job.name,
+        "source": job.source,
+        "destination": job.destination,
+        "dest_type": job.dest_type,
+        "schedule": job.schedule,
+        "retention": job.retention,
+        "enabled": job.enabled,
+        "last_run": job.last_run,
+        "last_status": job.last_status,
+        "last_size": job.last_size,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+
+
+def _remote_to_dict(remote: CloudRemote) -> dict:
+    return {
+        "name": remote.name,
+        "type": remote.remote_type,
+        "bucket": remote.bucket,
+        "status": remote.status,
+    }

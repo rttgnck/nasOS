@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react'
 import { useWindowStore } from '../store/windowStore'
+import { useSystemStore } from '../store/systemStore'
 import { useMetricsWebSocket } from '../hooks/useWebSocket'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { Window } from './Window'
 import { Taskbar } from './Taskbar'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { DesktopIcons } from './DesktopIcons'
+import { DesktopWidgets } from './DesktopWidgets'
 import { SnapOverlay, type SnapZone } from './WindowSnapping'
 import { AltTabSwitcher } from './AltTabSwitcher'
 import { BackupManager } from '../apps/BackupManager/BackupManager'
@@ -71,6 +73,8 @@ export function Desktop() {
         return <Settings initialTab="users" />
       case 'network-settings':
         return <Settings initialTab="network" />
+      case 'system-updates':
+        return <Settings initialTab="updates" />
       case 'system-monitor':
         return <SystemMonitor />
       default:
@@ -78,11 +82,19 @@ export function Desktop() {
     }
   }
 
+  const wallpaper = useSystemStore((s) => s.wallpaper)
+
   return (
-    <div className="desktop" onContextMenu={handleDesktopContextMenu}>
+    <div
+      className="desktop"
+      onContextMenu={handleDesktopContextMenu}
+      style={wallpaper ? { backgroundImage: `url(${wallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+    >
       {/* Desktop icons */}
       <DesktopIcons />
 
+      {/* Desktop widgets */}
+      <DesktopWidgets />
       {/* Snap zone preview overlay */}
       <SnapOverlay zone={snapZone} />
 

@@ -218,6 +218,76 @@ def container_action(container_id: str, action: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def get_container_logs(container_id: str, tail: int = 100) -> list[str]:
+    """Get the last N log lines from a Docker container."""
+    if not _is_linux:
+        # Mock log output
+        import random
+        from datetime import datetime, timedelta
+
+        container = next((c for c in _MOCK_CONTAINERS if c["id"] == container_id), None)
+        name = container["name"] if container else "unknown"
+        now = datetime.now()
+        log_templates = {
+            "jellyfin": [
+                "[INF] Jellyfin version 10.9.4",
+                "[INF] Starting Jellyfin Server",
+                "[INF] Startup complete",
+                "[INF] Device registered: iPhone-14",
+                "[INF] User authenticated: admin",
+                "[INF] Scanning media library: /media/movies",
+                "[INF] Found 247 items in library",
+                "[INF] Stream started: Movie.mkv (direct play)",
+                "[INF] Transcoding: TV/Episode.mp4 (h264 -> h264, 1080p)",
+                "[WRN] Slow media scan detected (>30s)",
+            ],
+            "nextcloud": [
+                "Apache/2.4 (Debian) configured",
+                "OC\\Setup: Configuration file created",
+                "[notice] Nextcloud ready",
+                "192.168.1.42 - admin [GET /index.php HTTP/1.1] 200",
+                "192.168.1.42 - alice [PUT /remote.php/dav HTTP/1.1] 201",
+                "OC\\Files: File uploaded: photo.jpg (4.2MB)",
+                "OC\\Cron: Background job finished (23ms)",
+                "OC\\Preview: Generated thumbnail for document.pdf",
+            ],
+            "pihole": [
+                "FTL started!",
+                "Blocking status is enabled",
+                "Imported 124,302 domains for blocking",
+                "query[A] google.com from 192.168.1.42 -> NODATA",
+                "query[AAAA] ads.tracker.com from 192.168.1.10 -> BLOCKED (gravity)",
+                "query[A] github.com from 192.168.1.42 -> forwarded to 1.1.1.1",
+                "Gravity update: 124,502 domains on blocklist",
+                "Rate limit: 192.168.1.100 exceeded 1000 queries/10min",
+            ],
+        }
+        templates = log_templates.get(name, [
+            f"[INFO] {name} started",
+            f"[INFO] {name} processing request",
+            "[DEBUG] Health check passed",
+            "[INFO] Connection accepted from 192.168.1.42",
+            "[WARN] High memory usage detected",
+        ])
+
+        lines = []
+        for i in range(min(tail, 50)):
+            ts = (now - timedelta(minutes=tail - i)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            msg = random.choice(templates)
+            lines.append(f"{ts} {msg}")
+        return lines
+
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["docker", "logs", "--tail", str(tail), "--timestamps", container_id],
+            text=True, stderr=subprocess.STDOUT, timeout=10,
+        )
+        return out.strip().splitlines()
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return ["Error: could not retrieve container logs"]
+
+
 def get_app_catalog() -> list[dict]:
     return APP_CATALOG
 

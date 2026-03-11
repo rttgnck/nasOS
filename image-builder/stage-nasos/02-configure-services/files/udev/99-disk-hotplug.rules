@@ -1,0 +1,15 @@
+# nasOS: Detect USB/SATA disk attach and detach
+# Notify the backend API so the UI can update in real-time
+
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]", \
+  RUN+="/opt/nasos/scripts/disk-hotplug.sh add %k"
+
+ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z]", \
+  RUN+="/opt/nasos/scripts/disk-hotplug.sh remove %k"
+
+# NVMe drives (Pi 5 via PCIe HAT)
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="nvme[0-9]n[0-9]", \
+  RUN+="/opt/nasos/scripts/disk-hotplug.sh add %k"
+
+ACTION=="remove", SUBSYSTEM=="block", KERNEL=="nvme[0-9]n[0-9]", \
+  RUN+="/opt/nasos/scripts/disk-hotplug.sh remove %k"

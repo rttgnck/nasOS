@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react'
 import { useSystemStore } from '../store/systemStore'
 
 export function NotificationCenter() {
@@ -47,9 +48,9 @@ export function NotificationCenter() {
                   onClick={() => markRead(notif.id)}
                 >
                   <div className="notification-item-icon">
-                    {notif.type === 'error' ? '⛔' :
-                     notif.type === 'warning' ? '⚠️' :
-                     notif.type === 'success' ? '✅' : 'ℹ️'}
+                    {notif.type === 'error' ? <XCircle size={16} /> :
+                     notif.type === 'warning' ? <AlertTriangle size={16} /> :
+                     notif.type === 'success' ? <CheckCircle2 size={16} /> : <Info size={16} />}
                   </div>
                   <div className="notification-item-content">
                     <div className="notification-item-title">{notif.title}</div>

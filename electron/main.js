@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session } = require('electron')
+const { app, BrowserWindow, powerSaveBlocker, session } = require('electron')
 const path = require('path')
 
 const isDev = process.argv.includes('--dev')
@@ -36,6 +36,24 @@ function createWindow() {
     setTimeout(() => win.loadURL(BACKEND_URL), 2000)
   })
 
+  // Auto-reload if the renderer process crashes (GPU OOM, JS exception, etc.)
+  // This prevents the screen from staying blank after a renderer crash.
+  win.webContents.on('render-process-gone', (event, details) => {
+    console.error('Renderer process gone:', details.reason, '— reloading in 3s')
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.loadURL(BACKEND_URL)
+    }, 3000)
+  })
+
+  win.webContents.on('unresponsive', () => {
+    console.warn('Renderer unresponsive — forcing reload in 5s')
+    setTimeout(() => {
+      if (!win.isDestroyed() && !win.webContents.isLoading()) {
+        win.webContents.reload()
+      }
+    }, 5000)
+  })
+
   // Prevent navigation to external URLs
   win.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(BACKEND_URL)) {
@@ -47,6 +65,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Prevent the display from sleeping / going blank while nasOS is running.
+  // This stops DPMS blanking that cage/wlroots triggers after idle time.
+  powerSaveBlocker.start('prevent-display-sleep')
+
   createWindow()
 
   app.on('activate', () => {

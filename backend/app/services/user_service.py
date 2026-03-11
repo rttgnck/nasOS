@@ -2,12 +2,114 @@
 
 On Linux: wraps useradd/usermod/userdel/groupadd etc.
 On macOS (dev): returns mock data.
+
+When creating or deleting users, also syncs them into the Samba
+password database so they can authenticate to SMB shares.
 """
 
+import logging
 import platform
 import subprocess
+from pathlib import Path
+
+from app.core.config import settings
 
 _is_linux = platform.system() == "Linux"
+_log = logging.getLogger(__name__)
+
+ADMIN_DEFAULT_PASSWORD = "nasos"
+
+# File that lists users who must change their password on next login.
+# Written by first-boot.sh (always contains "admin") and by ensure_admin_user().
+# Cleared per-user by the password-change API endpoint.
+_DEFAULT_PW_MARKER: Path = settings.data_dir / ".default-password-accounts"
+
+
+def needs_password_change(username: str) -> bool:
+    """Return True if this user still has a default/temporary password."""
+    try:
+        if not _DEFAULT_PW_MARKER.exists():
+            return False
+        return username in {u.strip() for u in _DEFAULT_PW_MARKER.read_text().splitlines() if u.strip()}
+    except OSError:
+        return False
+
+
+def mark_password_change_required(username: str) -> None:
+    """Flag a user as requiring a password change on next login."""
+    try:
+        _DEFAULT_PW_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        current: set[str] = set()
+        if _DEFAULT_PW_MARKER.exists():
+            current = {u.strip() for u in _DEFAULT_PW_MARKER.read_text().splitlines() if u.strip()}
+        current.add(username)
+        _DEFAULT_PW_MARKER.write_text("\n".join(sorted(current)) + "\n")
+    except OSError as e:
+        _log.warning("Could not write default-password marker: %s", e)
+
+
+def clear_password_change_required(username: str) -> None:
+    """Remove the password-change requirement for a user."""
+    try:
+        if not _DEFAULT_PW_MARKER.exists():
+            return
+        current = {u.strip() for u in _DEFAULT_PW_MARKER.read_text().splitlines() if u.strip()}
+        current.discard(username)
+        if current:
+            _DEFAULT_PW_MARKER.write_text("\n".join(sorted(current)) + "\n")
+        else:
+            _DEFAULT_PW_MARKER.unlink(missing_ok=True)
+    except OSError as e:
+        _log.warning("Could not update default-password marker: %s", e)
+
+
+def ensure_admin_user() -> None:
+    """Ensure the built-in admin user exists and is fully configured.
+
+    Called at backend startup (idempotent). Handles deployments that were
+    flashed before first-boot.sh gained admin-user creation, so existing
+    devices get the admin account without reimaging.
+
+    - Creates the Linux user if missing, with ADMIN_DEFAULT_PASSWORD
+    - Adds them to the nasos + sudo groups
+    - Activates their Samba account (so shares work immediately)
+    - Writes the must-change-password marker
+    Skipped entirely on macOS dev machines OR when the admin user already exists
+    (to avoid resetting a password that the user has already changed).
+    """
+    if not _is_linux:
+        return
+
+    from app.services.share_service import _sudo_helper
+
+    try:
+        import pwd as _pwd
+        _pwd.getpwnam("admin")
+        # Admin user already exists — trust first-boot.sh to have set everything up.
+        # Never overwrite Samba password here: would lock out users who already
+        # changed their password to a custom one.
+        return
+    except KeyError:
+        pass
+
+    # Admin user is missing — this is an existing image that pre-dates this feature.
+    _log.info("Built-in admin user not found — creating now (legacy image)")
+    ok = _sudo_helper(
+        "create-user", "admin", "Administrator", "nasos,sudo",
+        stdin_data=f"{ADMIN_DEFAULT_PASSWORD}\n",
+    )
+    if not ok:
+        _log.warning("Failed to create built-in admin user — check systemd logs")
+        return
+
+    # Activate Samba account for the freshly created admin
+    _sudo_helper(
+        "add-smb-user", "admin",
+        stdin_data=f"{ADMIN_DEFAULT_PASSWORD}\n{ADMIN_DEFAULT_PASSWORD}\n",
+    )
+    # Flag the account for required password change on next dashboard login
+    mark_password_change_required("admin")
+    _log.info("Built-in admin user created with default password (must_change_password set)")
 
 # ── Mock data for dev ──────────────────────────────────────────────
 
@@ -91,24 +193,14 @@ def create_user(username: str, password: str, fullname: str = "", groups: list[s
         _MOCK_USERS.append(new_user)
         return new_user
 
-    cmd = ["useradd", "-m", "-s", "/bin/bash"]
-    if fullname:
-        cmd.extend(["-c", fullname])
-    if groups:
-        cmd.extend(["-G", ",".join(groups)])
-    cmd.append(username)
+    from app.services.share_service import _sudo_helper
 
-    subprocess.check_call(cmd)
+    groups_str = ",".join(groups) if groups else "nasos"
+    ok = _sudo_helper("create-user", username, fullname or "", groups_str, stdin_data=f"{password}\n")
+    if not ok:
+        raise RuntimeError(f"Failed to create user '{username}' — check system logs")
 
-    # Set password
-    proc = subprocess.Popen(
-        ["chpasswd"],
-        stdin=subprocess.PIPE,
-        text=True,
-    )
-    proc.communicate(f"{username}:{password}\n")
-
-    return {"username": username, "fullname": fullname, "groups": groups or []}
+    return {"username": username, "fullname": fullname, "groups": groups or ["nasos"]}
 
 
 def delete_user(username: str) -> bool:
@@ -119,11 +211,10 @@ def delete_user(username: str) -> bool:
             return True
         return False
 
-    try:
-        subprocess.check_call(["userdel", "-r", username])
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    from app.services.share_service import _sudo_helper
+
+    _sudo_helper("delete-user", username)
+    return True
 
 
 def _get_user_groups(username: str) -> list[str]:
@@ -133,3 +224,47 @@ def _get_user_groups(username: str) -> list[str]:
         return out.strip().split(":")[1].strip().split()
     except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
         return []
+
+
+# ── Samba user sync ──────────────────────────────────────────────────
+
+
+def _sync_samba_user(username: str, password: str):
+    """Add a user to Samba's password database when they are created."""
+    try:
+        from app.services.share_service import add_samba_user
+        add_samba_user(username, password)
+    except Exception as e:
+        _log.warning("Failed to add Samba user '%s': %s", username, e)
+
+
+def _remove_samba_user(username: str):
+    """Remove a user from Samba's password database when they are deleted."""
+    try:
+        from app.services.share_service import remove_samba_user
+        remove_samba_user(username)
+    except Exception as e:
+        _log.warning("Failed to remove Samba user '%s': %s", username, e)
+
+
+def change_password(username: str, new_password: str) -> dict:
+    """
+    Set a new Linux system password AND Samba password for an existing user.
+
+    Routes through share-helper.sh (run via sudo) because the backend runs as
+    an unprivileged service user and cannot call chpasswd/smbpasswd directly.
+    """
+    if not _is_linux:
+        return {"ok": True}  # no-op in dev
+
+    if not username or not new_password:
+        raise ValueError("username and new_password are required")
+
+    from app.services.share_service import _sudo_helper
+
+    ok = _sudo_helper("set-password", username, stdin_data=f"{new_password}\n")
+    if not ok:
+        raise RuntimeError(f"Failed to set password for '{username}' — check /var/log/syslog")
+
+    _log.info("Password changed for user '%s' (Linux + Samba)", username)
+    return {"ok": True}

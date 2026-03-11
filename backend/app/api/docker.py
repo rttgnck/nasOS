@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from app.services.docker_service import (
     container_action,
     get_app_catalog,
+    get_container_logs,
     get_containers,
     install_app,
 )
@@ -30,6 +31,13 @@ async def perform_action(container_id: str, body: ContainerAction):
     if not result.get("ok"):
         raise HTTPException(status_code=500, detail=result.get("error"))
     return result
+
+
+@router.get("/containers/{container_id}/logs")
+async def container_logs(container_id: str, tail: int = 100):
+    """Get the last N log lines from a container."""
+    lines = get_container_logs(container_id, tail)
+    return {"logs": lines, "container_id": container_id}
 
 
 @router.get("/catalog")

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Package } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import type { FileEntry } from './FileManager'
 
@@ -67,7 +68,7 @@ export function FilePreview({ entry }: FilePreviewProps) {
 
       {preview.type === 'binary' && (
         <div className="fm-preview-binary">
-          <span className="fm-preview-binary-icon">📦</span>
+          <span className="fm-preview-binary-icon"><Package size={32} /></span>
           <span>Binary file</span>
           <span className="fm-preview-binary-size">{formatPreviewSize(preview.size)}</span>
         </div>

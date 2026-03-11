@@ -8,9 +8,25 @@
 
    # Security
    security = user
-   map to guest = never
+   # Bad User: unknown usernames are mapped to guest (allows guest shares)
+   # Valid usernames with wrong passwords are still denied
+   map to guest = Bad User
+   guest account = nobody
+   # restrict anonymous = 0 enables unauthenticated guest browsing (required for macOS Ventura+)
+   restrict anonymous = 0
    server min protocol = SMB2
-   server smb encrypt = desired
+   # if_required: only encrypt when the client demands it.
+   # 'desired' causes macOS Ventura/Sonoma to hang on guest connections while
+   # attempting to complete the encryption handshake.
+   server smb encrypt = if_required
+
+   # Keep Linux system password and Samba password in sync.
+   # When smbpasswd changes the Samba password, /usr/bin/passwd is run
+   # automatically so both databases stay identical.
+   unix password sync = yes
+   passwd program = /usr/bin/passwd %u
+   passwd chat = *Enter\snew\s*\spassword:* %n\n *Retype\snew\s*\spassword:* %n\n *password\supdated\ssuccessfully* .
+   pam password change = yes
 
    # Performance
    socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072
@@ -33,5 +49,14 @@
    # Avahi / Bonjour
    multicast dns register = yes
 
-# Shares are auto-generated below this line by nasOS backend
+# Default shares
+[homes]
+   comment = Home Directories
+   browseable = no
+   read only = no
+   create mask = 0700
+   directory mask = 0700
+   valid users = %S
+
+# Additional shares auto-generated below by nasOS backend
 # --- NASOS SHARES ---

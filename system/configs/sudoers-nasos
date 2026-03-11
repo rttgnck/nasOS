@@ -1,0 +1,9 @@
+# /etc/sudoers.d/nasos-backend
+# Allow the nasOS backend service user to manage shares and services.
+# Installed by nasOS first-boot setup.
+#
+# NOTE: The username below is patched by first-boot.sh if Pi Imager
+# renamed the default user from 'nasos' to something else.
+
+nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh *
+nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh

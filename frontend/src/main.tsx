@@ -1,11 +1,11 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { Desktop } from './desktop/Desktop'
+import { App } from './App'
 import './styles/global.css'
 import './styles/desktop.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Desktop />
+    <App />
   </React.StrictMode>,
 )

@@ -47,8 +47,9 @@ lint: ## Run linters
 	cd backend && python -m ruff check .
 	cd frontend && npm run lint
 
-test: ## Run tests
+test: ## Run all tests
 	cd backend && python -m pytest tests/ -v
+	cd frontend && npx vitest run
 
 # ===== Clean =====
 

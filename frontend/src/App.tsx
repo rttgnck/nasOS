@@ -1,0 +1,49 @@
+import { useEffect } from 'react'
+import { useAuthStore } from './store/authStore'
+import { Desktop } from './desktop/Desktop'
+import { LoginScreen } from './apps/LoginScreen/LoginScreen'
+import { ForceChangePassword } from './apps/ForceChangePassword/ForceChangePassword'
+
+export function App() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const isLoading = useAuthStore((s) => s.isLoading)
+  const checkAuth = useAuthStore((s) => s.checkAuth)
+  const mustChangePassword = useAuthStore((s) => s.mustChangePassword)
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
+  // Show nothing while checking existing token
+  if (isLoading && !isAuthenticated) {
+    return (
+      <div className="login-screen">
+        <div className="login-loading">
+          <div className="login-logo-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect x="4" y="8" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.9" />
+              <rect x="4" y="20" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.7" />
+              <rect x="4" y="32" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.5" />
+              <circle cx="10" cy="13" r="2" fill="#1a1a2e" />
+              <circle cx="10" cy="25" r="2" fill="#1a1a2e" />
+              <circle cx="10" cy="37" r="2" fill="#1a1a2e" />
+            </svg>
+          </div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen />
+  }
+
+  // Authenticated but using the default password — force a password change before
+  // granting access to the desktop. Prompt repeats every login until cleared.
+  if (mustChangePassword) {
+    return <ForceChangePassword />
+  }
+
+  return <Desktop />
+}

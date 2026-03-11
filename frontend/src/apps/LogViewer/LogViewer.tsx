@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { api } from '../../hooks/useApi'
 
 interface LogEntry {
   timestamp: string
@@ -22,12 +23,6 @@ const PRIORITIES = [
   { value: '7', label: '7 - Debug' },
 ]
 
-async function api(url: string) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
-}
-
 export function LogViewer() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +41,7 @@ export function LogViewer() {
       if (unit) params.set('unit', unit)
       if (priority) params.set('priority', priority)
       if (grep) params.set('grep', grep)
-      const data = await api(`/api/logs?${params}`)
+      const data = await api<{ logs: LogEntry[] }>(`/api/logs?${params}`)
       setLogs(data.logs)
     } catch {
       /* ignore */

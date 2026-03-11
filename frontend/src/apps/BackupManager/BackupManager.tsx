@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Cloud, HardDrive, Trash2, Play, Pause, Camera, Server } from 'lucide-react'
+import { api } from '../../hooks/useApi'
+import { useSystemStore } from '../../store/systemStore'
 
 interface BackupJob {
   id: number
@@ -29,14 +32,6 @@ interface CloudRemote {
   status: string
 }
 
-async function api(url: string, opts?: RequestInit) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  })
-  if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
-}
 
 type BkTab = 'jobs' | 'snapshots' | 'cloud'
 
@@ -71,7 +66,7 @@ function JobsView() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api('/api/backup/jobs')
+      const data = await api<{ jobs: BackupJob[] }>('/api/backup/jobs')
       setJobs(data.jobs)
     } catch { /* ignore */ }
     finally { setLoading(false) }
@@ -79,18 +74,40 @@ function JobsView() {
 
   useEffect(() => { load() }, [load])
 
+  const notify = useSystemStore.getState().addNotification
+
   const runNow = async (id: number) => {
-    await api(`/api/backup/jobs/${id}/run`, { method: 'POST' }).catch(() => {})
+    const job = jobs.find((j) => j.id === id)
+    notify('Backup Started', `Running "${job?.name || 'job'}" now...`, 'info')
+    try {
+      await api(`/api/backup/jobs/${id}/run`, { method: 'POST' })
+      notify('Backup Complete', `"${job?.name || 'job'}" finished successfully`, 'success')
+    } catch {
+      notify('Backup Failed', `"${job?.name || 'job'}" encountered an error`, 'error')
+    }
     load()
   }
 
   const toggle = async (id: number) => {
-    await api(`/api/backup/jobs/${id}/toggle`, { method: 'POST' }).catch(() => {})
+    const job = jobs.find((j) => j.id === id)
+    try {
+      await api(`/api/backup/jobs/${id}/toggle`, { method: 'POST' })
+      const action = job?.enabled ? 'disabled' : 'enabled'
+      notify('Backup Job', `"${job?.name || 'job'}" has been ${action}`, 'info')
+    } catch {
+      notify('Backup Error', 'Failed to toggle backup job', 'error')
+    }
     load()
   }
 
   const remove = async (id: number) => {
-    await api(`/api/backup/jobs/${id}`, { method: 'DELETE' }).catch(() => {})
+    const job = jobs.find((j) => j.id === id)
+    try {
+      await api(`/api/backup/jobs/${id}`, { method: 'DELETE' })
+      notify('Backup Deleted', `"${job?.name || 'job'}" has been removed`, 'info')
+    } catch {
+      notify('Backup Error', 'Failed to delete backup job', 'error')
+    }
     load()
   }
 
@@ -104,17 +121,17 @@ function JobsView() {
             <div className="bk-job-header">
               <div className="bk-job-title">
                 <span className="bk-job-name">{job.name}</span>
-                <span className={`bk-dest-badge bk-dest-${job.dest_type}`}>
-                  {job.dest_type === 'cloud' ? '☁️' : '💽'} {job.dest_type}
+                <span className={`bk-dest-badge bk-dest-${job.dest_type}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {job.dest_type === 'cloud' ? <Cloud size={12} /> : <HardDrive size={12} />} {job.dest_type}
                 </span>
                 {!job.enabled && <span className="bk-disabled-badge">Disabled</span>}
               </div>
               <div className="bk-job-actions">
-                <button className="bk-btn-sm" title="Run Now" onClick={() => runNow(job.id)}>▶</button>
+                <button className="bk-btn-sm" title="Run Now" onClick={() => runNow(job.id)}><Play size={14} /></button>
                 <button className="bk-btn-sm" title={job.enabled ? 'Disable' : 'Enable'} onClick={() => toggle(job.id)}>
-                  {job.enabled ? '⏸' : '⏵'}
+                  {job.enabled ? <Pause size={14} /> : <Play size={14} />}
                 </button>
-                <button className="bk-btn-sm bk-btn-danger" title="Delete" onClick={() => remove(job.id)}>🗑</button>
+                <button className="bk-btn-sm bk-btn-danger" title="Delete" onClick={() => remove(job.id)}><Trash2 size={14} /></button>
               </div>
             </div>
             <div className="bk-job-body">
@@ -163,7 +180,7 @@ function SnapshotsView() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
 
   useEffect(() => {
-    api('/api/backup/snapshots').then((d) => setSnapshots(d.snapshots)).catch(() => {})
+    api<{ snapshots: Snapshot[] }>('/api/backup/snapshots').then((d) => setSnapshots(d.snapshots)).catch(() => {})
   }, [])
 
   return (
@@ -177,7 +194,7 @@ function SnapshotsView() {
         <div className="bk-snap-list">
           {snapshots.map((snap) => (
             <div key={snap.id} className="bk-snap-row">
-              <div className="bk-snap-icon">📸</div>
+              <div className="bk-snap-icon"><Camera size={20} /></div>
               <div className="bk-snap-info">
                 <div className="bk-snap-name">{snap.name}</div>
                 <div className="bk-snap-path">{snap.path}</div>
@@ -200,7 +217,7 @@ function CloudView() {
   const [remotes, setRemotes] = useState<CloudRemote[]>([])
 
   useEffect(() => {
-    api('/api/backup/remotes').then((d) => setRemotes(d.remotes)).catch(() => {})
+    api<{ remotes: CloudRemote[] }>('/api/backup/remotes').then((d) => setRemotes(d.remotes)).catch(() => {})
   }, [])
 
   return (
@@ -212,7 +229,7 @@ function CloudView() {
         {remotes.map((r) => (
           <div key={r.name} className="bk-remote-card">
             <div className="bk-remote-icon">
-              {r.type.includes('S3') ? '🪣' : r.type.includes('Google') ? '📁' : r.type.includes('Backblaze') ? '🔵' : '☁️'}
+              {r.type.includes('S3') ? <Server size={24} /> : r.type.includes('Google') ? <HardDrive size={24} /> : r.type.includes('Backblaze') ? <Cloud size={24} /> : <Cloud size={24} />}
             </div>
             <div className="bk-remote-info">
               <div className="bk-remote-name">{r.name}</div>

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type LucideIcon,
+  Folder, File, FileText, FileImage, FileVideo, Music,
+  Archive, Code, Terminal, Disc,
+  Menu, ArrowUp, RotateCcw, X, PanelRight, LayoutGrid, List,
+} from 'lucide-react'
 import { api } from '../../hooks/useApi'
+import { useAuthStore } from '../../store/authStore'
 import { useFileStore } from '../../store/fileStore'
 import { FileTree } from './FileTree'
 import { FilePreview } from './FilePreview'
@@ -211,9 +218,11 @@ export function FileManager() {
       const formData = new FormData()
       formData.append('file', file)
       try {
+        const token = useAuthStore.getState().token
         await fetch(`/api/files/upload?path=${encodeURIComponent(currentPath || '.')}`, {
           method: 'POST',
           body: formData,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
       } catch {
         // ignore individual failures
@@ -301,16 +310,16 @@ export function FileManager() {
       {/* Toolbar */}
       <div className="fm-toolbar">
         <button className="fm-btn" onClick={() => setShowSidebar(!showSidebar)} title="Toggle sidebar">
-          ☰
+          <Menu size={16} />
         </button>
         <button
           className="fm-btn"
           disabled={!parentPath}
           onClick={() => parentPath && loadDirectory(parentPath === '.' ? '' : parentPath)}
         >
-          ↑
+          <ArrowUp size={16} />
         </button>
-        <button className="fm-btn" onClick={() => loadDirectory(currentPath)}>↻</button>
+        <button className="fm-btn" onClick={() => loadDirectory(currentPath)}><RotateCcw size={16} /></button>
         <div className="fm-breadcrumbs">
           {breadcrumbs.map((crumb, i) => (
             <span key={i}>
@@ -338,7 +347,7 @@ export function FileManager() {
           />
           {searchResults && (
             <button className="fm-search-clear" onClick={() => { setSearchResults(null); setSearchQuery('') }}>
-              ✕
+              <X size={14} />
             </button>
           )}
         </div>
@@ -348,13 +357,13 @@ export function FileManager() {
           title="Toggle preview"
           data-active={showPreview}
         >
-          ◫
+          <PanelRight size={16} />
         </button>
         <button
           className="fm-btn"
           onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
         >
-          {viewMode === 'grid' ? '☰' : '⊞'}
+          {viewMode === 'grid' ? <List size={16} /> : <LayoutGrid size={16} />}
         </button>
       </div>
 
@@ -429,10 +438,10 @@ export function FileManager() {
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <>
-                      <span className="fm-entry-icon">{entry.is_dir ? '📁' : getFileIcon(entry.name)}</span>
+                    <span className="fm-col-name">
+                      <span className="fm-entry-icon">{entry.is_dir ? <Folder size={16} /> : getFileIcon(entry.name)}</span>
                       <span className="fm-entry-name">{entry.name}</span>
-                    </>
+                    </span>
                   )}
                   {viewMode === 'list' && renamingItem !== entry.name && (
                     <>
@@ -503,20 +512,21 @@ export function FileManager() {
   )
 }
 
-function getFileIcon(name: string): string {
+function getFileIcon(name: string): JSX.Element {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  const icons: Record<string, string> = {
-    pdf: '📕', doc: '📘', docx: '📘', txt: '📝', md: '📝',
-    jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', webp: '🖼️', svg: '🖼️',
-    mp4: '🎬', mkv: '🎬', avi: '🎬', mov: '🎬',
-    mp3: '🎵', flac: '🎵', wav: '🎵', ogg: '🎵',
-    zip: '📦', tar: '📦', gz: '📦', rar: '📦', '7z': '📦',
-    py: '🐍', js: '📜', ts: '📜', jsx: '📜', tsx: '📜',
-    json: '📋', yaml: '📋', yml: '📋', toml: '📋',
-    sh: '⚙️', bash: '⚙️',
-    iso: '💿', img: '💿',
+  const iconMap: Record<string, LucideIcon> = {
+    pdf: FileText, doc: FileText, docx: FileText, txt: FileText, md: FileText,
+    jpg: FileImage, jpeg: FileImage, png: FileImage, gif: FileImage, webp: FileImage, svg: FileImage,
+    mp4: FileVideo, mkv: FileVideo, avi: FileVideo, mov: FileVideo,
+    mp3: Music, flac: Music, wav: Music, ogg: Music,
+    zip: Archive, tar: Archive, gz: Archive, rar: Archive, '7z': Archive,
+    py: Code, js: Code, ts: Code, jsx: Code, tsx: Code,
+    json: Code, yaml: Code, yml: Code, toml: Code,
+    sh: Terminal, bash: Terminal,
+    iso: Disc, img: Disc,
   }
-  return icons[ext] ?? '📄'
+  const Icon = iconMap[ext] ?? File
+  return <Icon size={16} />
 }
 
 function formatSize(bytes: number | null): string {

@@ -34,12 +34,14 @@ interface SystemStore {
   history: MetricsHistory
   notifications: Notification[]
   isConnected: boolean
+  wallpaper: string | null
 
   updateMetrics: (metrics: SystemMetrics) => void
   setConnected: (connected: boolean) => void
   addNotification: (title: string, message: string, type: Notification['type']) => void
   markRead: (id: string) => void
   clearNotifications: () => void
+  setWallpaper: (url: string | null) => void
 }
 
 let notifCounter = 0
@@ -63,6 +65,7 @@ export const useSystemStore = create<SystemStore>((set) => ({
   },
   notifications: [],
   isConnected: false,
+  wallpaper: localStorage.getItem('nasos-wallpaper') || null,
 
   updateMetrics: (metrics) =>
     set((state) => {
@@ -103,4 +106,13 @@ export const useSystemStore = create<SystemStore>((set) => ({
   },
 
   clearNotifications: () => set({ notifications: [] }),
+
+  setWallpaper: (url) => {
+    if (url) {
+      localStorage.setItem('nasos-wallpaper', url)
+    } else {
+      localStorage.removeItem('nasos-wallpaper')
+    }
+    set({ wallpaper: url })
+  },
 }))

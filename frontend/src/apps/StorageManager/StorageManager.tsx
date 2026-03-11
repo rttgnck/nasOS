@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Zap, Disc } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 
 interface Partition {
@@ -172,7 +173,7 @@ function DiskCard({ disk, onViewSmart }: { disk: Disk; onViewSmart: () => void }
   return (
     <div className="sto-disk-card">
       <div className="sto-disk-header">
-        <span className="sto-disk-icon">{isSSD ? '⚡' : '💿'}</span>
+        <span className="sto-disk-icon">{isSSD ? <Zap size={20} /> : <Disc size={20} />}</span>
         <div className="sto-disk-info">
           <span className="sto-disk-model">{disk.model || disk.name}</span>
           <span className="sto-disk-meta">
