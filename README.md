@@ -270,6 +270,17 @@ sudo dd if=image-builder/deploy/nasos.img of=/dev/sdX bs=4M status=progress
 3. The desktop appears on the HDMI display within about 30 seconds
 4. From any device on the same network, open **https://nasos.local** in a browser
 
+### Logging In
+
+You can sign in with either of the following accounts:
+
+| Account | Username | Password | Notes |
+|---------|----------|----------|-------|
+| **nasOS admin** | `admin` | `admin123` | Default nasOS management account |
+| **Pi Imager user** | *(your chosen username)* | *(your chosen password)* | Set in Raspberry Pi Imager before flashing |
+
+> **Using the Pi Imager user for file shares?** You must set a Samba password for that account before SMB/NFS shares will work. Go to **Settings → Users**, select the user, and set a share password.
+
 ### Remote Access
 
 The full desktop UI is served over HTTPS at:
