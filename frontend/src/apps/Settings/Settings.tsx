@@ -1,11 +1,22 @@
 import { Component, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  AlertTriangle, BatteryCharging, Clock, Cpu, Globe, Info, Lock, LockOpen,
-  Monitor, Network, Package, Palette, Plug, Printer, Radio, RotateCcw, Shield, Smartphone, Thermometer,
-  User as UserIcon, Users, Wifi, WifiOff, Zap,
+  AlertTriangle, BatteryCharging, Check, Clock, Cpu, Globe, Info, Lock, LockOpen,
+  Monitor, Network, Package, Palette, Pencil, Plug, Plus, Printer, Radio, RotateCcw, Shield,
+  Smartphone, Thermometer, Trash2, User as UserIcon, Users, Wifi, WifiOff, Zap,
 } from 'lucide-react'
 import { api } from '../../hooks/useApi'
+import { useAuthStore } from '../../store/authStore'
 import { useSystemStore } from '../../store/systemStore'
+import {
+  BUILT_IN_THEMES,
+  DEFAULT_THEME,
+  THEME_VAR_META,
+  Theme,
+  ThemeVar,
+  applyTheme,
+  useThemeStore,
+} from '../../store/themeStore'
 import { PasswordInput } from '../../components/PasswordInput'
 
 // ── Error Boundary ────────────────────────────────────────────────
@@ -1172,7 +1183,7 @@ interface OtaProgress {
   phase: string
   percent: number
   message: string
-  status: 'running' | 'complete' | 'error'
+  status: 'running' | 'complete' | 'error' | 'rebooting'
   timestamp: string
 }
 
@@ -1186,6 +1197,7 @@ interface OtaStatus {
   staged: OtaPackageInfo | null
   progress: OtaProgress | null
   rollback: OtaRollback | null
+  disk_free_mb?: number
 }
 
 function fmtBytes(b: number) {
@@ -1202,9 +1214,13 @@ function UpdatesTab() {
   const [reconnecting, setReconnecting] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [rebootCountdown, setRebootCountdown] = useState<number | null>(null)
+  const [clearingRollback, setClearingRollback] = useState(false)
+  const [clearRollbackMsg, setClearRollbackMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const errCountRef = useRef(0)
+  const countdownStartedRef = useRef(false)
 
   // ── polling ──────────────────────────────────────────────────
   // Always poll every 1.5 s while the tab is open.
@@ -1219,6 +1235,17 @@ function UpdatesTab() {
       setStatus(s)
       // If we detect a running update we weren't tracking yet, enter applying state
       if (s.progress?.status === 'running') setApplying(true)
+      // Start reboot countdown when phase transitions to rebooting
+      if (s.progress?.status === 'rebooting' && !countdownStartedRef.current) {
+        countdownStartedRef.current = true
+        setRebootCountdown(5)
+        const cdTimer = setInterval(() => {
+          setRebootCountdown((c) => {
+            if (c === null || c <= 1) { clearInterval(cdTimer); return 0 }
+            return c - 1
+          })
+        }, 1000)
+      }
       // Clear applying when done
       if (s.progress?.status === 'complete' || s.progress?.status === 'error') {
         setApplying(false)
@@ -1247,19 +1274,48 @@ function UpdatesTab() {
     try {
       const body = new FormData()
       body.append('file', file)
-      const token = localStorage.getItem('nasos_token')
+      const token = useAuthStore.getState().token
       const res = await fetch('/api/update/upload', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body,
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail || 'Upload failed')
+        let detail = res.statusText
+        try {
+          const err = await res.json()
+          // err.detail can be a string or a FastAPI validation-error array
+          detail = Array.isArray(err.detail)
+            ? err.detail.map((d: { msg: string }) => d.msg).join(', ')
+            : String(err.detail || res.statusText)
+        } catch { /* non-JSON body — use statusText */ }
+        // Friendly hint for the most common failure mode: full root partition
+        if (res.status === 507 || detail.toLowerCase().includes('disk') || detail.toLowerCase().includes('space')) {
+          throw new Error(
+            `${detail} — Use the "Clear rollback snapshot" button above to free space, then retry.`
+          )
+        }
+        throw new Error(detail || 'Upload failed')
       }
       await loadStatus()
     } catch (e) {
-      setUploadErr(e instanceof Error ? e.message : 'Upload failed')
+      // Network-level failures (backend down, connection reset mid-upload, etc.) show
+      // a generic browser error.  Give a more useful hint so the user knows what to do.
+      const msg = e instanceof Error ? e.message : 'Upload failed'
+      if (
+        msg === 'Failed to fetch' ||
+        msg.toLowerCase().includes('network') ||
+        msg.toLowerCase().includes('parsing') ||
+        msg.toLowerCase().includes('parse')
+      ) {
+        setUploadErr(
+          'Upload failed (backend disconnected or disk full). ' +
+          'If the disk-space warning is showing, clear the rollback snapshot first. ' +
+          'Otherwise check that the nasOS backend service is running.'
+        )
+      } else {
+        setUploadErr(msg)
+      }
     }
     setUploading(false)
   }, [loadStatus])
@@ -1292,40 +1348,113 @@ function UpdatesTab() {
     setApplying(true)
   }
 
+  const handleClearRollback = async () => {
+    setClearingRollback(true)
+    setClearRollbackMsg('')
+    try {
+      const res = await api<{ status: string; freed_mb: number; disk_free_mb: number }>(
+        '/api/update/rollback', { method: 'DELETE' }
+      )
+      const freed = res.freed_mb > 0 ? ` Freed ${res.freed_mb} MB.` : ''
+      setClearRollbackMsg(`Snapshot cleared.${freed} ${res.disk_free_mb} MB now free.`)
+      setUploadErr('')
+      await loadStatus()
+    } catch (e) {
+      setClearRollbackMsg(e instanceof Error ? e.message : 'Failed to clear snapshot')
+    }
+    setClearingRollback(false)
+  }
+
   if (!status) return <div className="set-loading">Loading update status...</div>
 
-  const { current_version, staged, progress, rollback } = status
+  const { current_version, staged, progress, rollback, disk_free_mb } = status
+  const diskLow = disk_free_mb !== undefined && disk_free_mb !== -1 && disk_free_mb < 200
+  const diskCritical = disk_free_mb !== undefined && disk_free_mb !== -1 && disk_free_mb < 100
   const isRunning = applying || (progress?.status === 'running')
+  const isRebooting = progress?.status === 'rebooting' || (rebootCountdown !== null && rebootCountdown > 0)
+  const isBusy = isRunning || isRebooting || reconnecting
+
+  // After an apply completes (or errors), stop showing the old staged package so
+  // the upload drop zone reappears — even if the file cleanup happened between polls.
+  const isDone = !isBusy && (progress?.status === 'complete' || progress?.status === 'error')
+  const displayStaged = isDone ? null : staged
 
   return (
     <div className="set-tab-content">
       {/* ── Current version ── */}
       <div className="set-section-header"><h3>OTA Updates</h3></div>
+
+      {/* ── Disk space warning ── */}
+      {diskLow && (
+        <div className={`upd-disk-warn${diskCritical ? ' upd-disk-critical' : ''}`}>
+          <strong>{diskCritical ? '🚨 Critical:' : '⚠️ Warning:'}</strong>
+          {' '}Root partition has only <strong>{disk_free_mb} MB</strong> free.
+          {diskCritical
+            ? ' Services like Samba and NFS cannot write on a full partition and will fail to start.'
+            : ' Upload may fail if space runs out mid-transfer.'}
+          {rollback && !diskCritical && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="set-btn"
+                onClick={handleClearRollback}
+                disabled={clearingRollback}
+              >
+                {clearingRollback ? 'Clearing…' : 'Clear rollback snapshot (frees ~20-200 MB)'}
+              </button>
+              {clearRollbackMsg && (
+                <span style={{ marginLeft: 10, fontSize: 13, color: '#90ee90' }}>{clearRollbackMsg}</span>
+              )}
+            </div>
+          )}
+          <div style={{ marginTop: rollback && !diskCritical ? 6 : 8, fontSize: 12, opacity: 0.85 }}>
+            SSH recovery:{' '}
+            <code>sudo rm -rf /opt/nasos/data/update-staging/rollback</code>
+            {diskCritical && (
+              <span> (then reboot)</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="upd-version-row">
         <div className="upd-ver-card">
           <div className="upd-ver-label">Installed Version</div>
           <div className="upd-ver-value">v{current_version}</div>
         </div>
-        {staged && (
+        {displayStaged && (
           <>
             <div className="upd-ver-arrow">&rarr;</div>
             <div className="upd-ver-card upd-ver-new">
               <div className="upd-ver-label">Staged Version</div>
-              <div className="upd-ver-value">v{staged.version}</div>
+              <div className="upd-ver-value">v{displayStaged.version}</div>
             </div>
           </>
         )}
       </div>
 
-      {/* ── Reconnecting banner (shown while backend is restarting mid-update) ── */}
-      {reconnecting && (
-        <div className="upd-reconnecting">
-          <span className="upd-reconnect-spin">↻</span>
-          Reconnecting to backend…
+      {/* ── Reboot countdown (shown for 5 s before the device goes down) ── */}
+      {isRebooting && !reconnecting && (
+        <div className="upd-reboot-banner">
+          <div className="upd-reboot-icon">&#8635;</div>
+          <div className="upd-reboot-text">
+            <strong>Rebooting device…</strong>
+            {rebootCountdown !== null && rebootCountdown > 0 && (
+              <span className="upd-reboot-cd"> {rebootCountdown}s</span>
+            )}
+          </div>
+          <div className="upd-reboot-sub">Do not power off. The page will reconnect automatically.</div>
         </div>
       )}
 
-      {/* ── Apply progress ── */}
+      {/* ── Reconnecting (device is offline after reboot) ── */}
+      {reconnecting && (
+        <div className="upd-reconnecting">
+          <span className="upd-reconnect-spin">↻</span>
+          Reconnecting — waiting for device to come back online…
+        </div>
+      )}
+
+      {/* ── Apply progress (install phases) ── */}
       {isRunning && progress && (
         <div className="upd-progress-box">
           <div className="upd-progress-header">
@@ -1339,28 +1468,23 @@ function UpdatesTab() {
             />
           </div>
           <div className="upd-progress-msg">{progress.message}</div>
-          {progress.percent < 80 && (
-            <div className="upd-progress-note">
-              The backend will restart — this page will reconnect automatically.
-            </div>
-          )}
         </div>
       )}
 
       {/* ── Complete / error result ── */}
-      {!isRunning && progress?.status === 'complete' && (
+      {!isBusy && progress?.status === 'complete' && (
         <div className="upd-result upd-result-ok">
-          Update to v{staged?.version || ''} applied successfully.
+          Update to v{staged?.version || current_version} applied successfully.
           <button className="set-btn" style={{ marginLeft: 12 }}
             onClick={() => window.location.reload()}>Reload UI</button>
         </div>
       )}
-      {!isRunning && progress?.status === 'error' && (
+      {!isBusy && progress?.status === 'error' && (
         <div className="upd-result upd-result-err">Update failed: {progress.message}</div>
       )}
 
       {/* ── Staged package ── */}
-      {staged && !isRunning && (
+      {displayStaged && !isBusy && (
         <>
           <div className="set-section-header" style={{ marginTop: 20 }}>
             <h3>Staged Package</h3>
@@ -1368,19 +1492,19 @@ function UpdatesTab() {
           <div className="upd-staged-card">
             <div className="upd-staged-info">
               <div className="upd-staged-row">
-                <span>Version</span><strong>v{staged.version}</strong>
+                <span>Version</span><strong>v{displayStaged.version}</strong>
               </div>
               <div className="upd-staged-row">
-                <span>Built</span><span>{new Date(staged.built_at).toLocaleString()}</span>
+                <span>Built</span><span>{new Date(displayStaged.built_at).toLocaleString()}</span>
               </div>
               <div className="upd-staged-row">
                 <span>Components</span>
-                <span>{staged.components.map(c => (
+                <span>{displayStaged.components.map(c => (
                   <span key={c} className="upd-component-badge">{c}</span>
                 ))}</span>
               </div>
               <div className="upd-staged-row">
-                <span>Size</span><span>{fmtBytes(staged.size_bytes)}</span>
+                <span>Size</span><span>{fmtBytes(displayStaged.size_bytes)}</span>
               </div>
             </div>
             <div className="upd-staged-actions">
@@ -1394,7 +1518,7 @@ function UpdatesTab() {
       )}
 
       {/* ── Upload drop zone ── */}
-      {!staged && !isRunning && (
+      {!displayStaged && !isBusy && (
         <>
           <div className="set-section-header" style={{ marginTop: 20 }}><h3>Upload Update Package</h3></div>
           {uploadErr && <div className="upd-result upd-result-err" style={{ marginBottom: 10 }}>{uploadErr}</div>}
@@ -1426,18 +1550,32 @@ function UpdatesTab() {
       )}
 
       {/* ── Rollback ── */}
-      {rollback && !isRunning && (
+      {rollback && !isBusy && (
         <div className="upd-rollback">
           <div>
             <div className="upd-rollback-label">Rollback available</div>
             <div className="upd-rollback-ver">Previous install: v{rollback.version}</div>
           </div>
-          <button className="set-btn" onClick={handleRollback}>Restore v{rollback.version}</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="set-btn" onClick={handleRollback}>Restore v{rollback.version}</button>
+            <button
+              className="set-btn"
+              style={{ opacity: 0.7 }}
+              onClick={handleClearRollback}
+              disabled={clearingRollback}
+              title="Remove the rollback snapshot to reclaim disk space on the root partition"
+            >
+              {clearingRollback ? 'Clearing…' : 'Clear snapshot'}
+            </button>
+          </div>
+          {clearRollbackMsg && (
+            <div style={{ fontSize: 12, color: '#90ee90', marginTop: 4, width: '100%' }}>{clearRollbackMsg}</div>
+          )}
         </div>
       )}
 
       {/* ── Confirm dialog ── */}
-      {confirm && staged && (
+      {confirm && displayStaged && (
         <div className="shr-overlay" onClick={() => setConfirm(false)}>
           <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
             <div className="shr-wizard-header">
@@ -1445,11 +1583,9 @@ function UpdatesTab() {
               <button className="shr-btn-icon" onClick={() => setConfirm(false)}>✕</button>
             </div>
             <div className="shr-wizard-body">
-              <p>This will install <strong>v{staged.version}</strong> and restart the backend service.</p>
-              <p>Components: {staged.components.join(', ')}</p>
-              {staged.components.includes('electron') && (
-                <p style={{ color: '#ffa726' }}>The desktop UI will also restart.</p>
-              )}
+              <p>This will install <strong>v{displayStaged.version}</strong> and reboot the device to apply changes.</p>
+              <p>Components: {displayStaged.components.join(', ')}</p>
+              <p style={{ color: '#ffa726', marginTop: 8 }}>⚠️ The device will be unreachable for ~60 seconds while it reboots.</p>
             </div>
             <div className="shr-wizard-footer">
               <button className="shr-btn" onClick={() => setConfirm(false)}>Cancel</button>
@@ -1614,31 +1750,293 @@ function TimeMachineTab() {
 // ── Personalization Tab ──────────────────────────────────────────
 
 const WALLPAPERS = [
-  { id: 'cosmic', label: 'Cosmic', url: '/wallpapers/cosmic.png' },
+  { id: 'cosmic',   label: 'Cosmic',   url: '/wallpapers/cosmic.png' },
   { id: 'abstract', label: 'Abstract', url: '/wallpapers/abstract.png' },
-  { id: 'aurora', label: 'Aurora', url: '/wallpapers/aurora.png' },
-  { id: 'mesh', label: 'Mesh', url: '/wallpapers/mesh.png' },
+  { id: 'aurora',   label: 'Aurora',   url: '/wallpapers/aurora.png' },
+  { id: 'mesh',     label: 'Mesh',     url: '/wallpapers/mesh.png' },
 ]
 
+// ── Helpers ────────────────────────────────────────────────────
+
+/** Resolve a CSS colour-like value to an opaque hex for <input type="color"> */
+function toColorPickerValue(val: string): string {
+  // If it's already a #rrggbb hex, pass it through
+  if (/^#[0-9a-f]{6}$/i.test(val)) return val
+  // Try to parse it via a hidden canvas
+  try {
+    const ctx = document.createElement('canvas').getContext('2d')!
+    ctx.fillStyle = '#000000'
+    ctx.fillStyle = val
+    const hex = ctx.fillStyle as string
+    if (/^#[0-9a-f]{6}$/i.test(hex)) return hex
+  } catch { /* ignore */ }
+  return '#000000'
+}
+
+/** Build a deterministic preview for a theme using its vars */
+function ThemePreview({ theme }: { theme: Theme }) {
+  const v = { ...DEFAULT_THEME.vars, ...theme.vars }
+  return (
+    <div className="theme-card-preview">
+      <div
+        className="theme-card-preview-desktop"
+        style={{ background: v['color-bg-desktop'] }}
+      />
+      <div
+        className="theme-card-preview-window"
+        style={{ background: v['color-bg-window'] }}
+      >
+        <div className="theme-card-preview-titlebar" style={{ background: v['color-bg-titlebar'] }} />
+        <div className="theme-card-preview-body" />
+      </div>
+      <div
+        className="theme-card-preview-taskbar"
+        style={{ background: v['color-bg-taskbar'] }}
+      />
+      <div
+        className="theme-card-preview-accent"
+        style={{ background: v['color-accent'] }}
+      />
+    </div>
+  )
+}
+
+// ── Theme Editor Modal ─────────────────────────────────────────
+
+interface ThemeEditorProps {
+  initial?: Theme
+  onSave: (theme: Theme) => void
+  onClose: () => void
+}
+
+function ThemeEditor({ initial, onSave, onClose }: ThemeEditorProps) {
+  const [name, setName] = useState(initial?.name ?? 'My Theme')
+  const [vars, setVars] = useState<Record<ThemeVar, string>>(
+    initial ? { ...DEFAULT_THEME.vars, ...initial.vars } : { ...DEFAULT_THEME.vars }
+  )
+
+  // Capture the theme that was active before this editor opened so we can
+  // restore it if the user cancels.
+  const restoreTheme = useRef(useThemeStore.getState().getActiveTheme())
+
+  // Live-preview: apply theme to the desktop whenever vars change.
+  useEffect(() => {
+    const previewTheme: Theme = {
+      id: initial?.id ?? '__preview__',
+      name: name.trim() || 'Preview',
+      builtIn: false,
+      vars,
+    }
+    applyTheme(previewTheme)
+  }, [vars]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setVar = (key: ThemeVar, value: string) =>
+    setVars((prev) => ({ ...prev, [key]: value }))
+
+  const handleCancel = () => {
+    // Restore the previously-active theme before closing.
+    applyTheme(restoreTheme.current)
+    onClose()
+  }
+
+  const handleSave = () => {
+    if (!name.trim()) return
+    const theme: Theme = {
+      id: initial?.id ?? `custom-${Date.now()}`,
+      name: name.trim(),
+      builtIn: false,
+      vars,
+    }
+    onSave(theme)
+  }
+
+  // Group vars
+  const groups = Array.from(new Set(THEME_VAR_META.map((m) => m.group)))
+
+  return (
+    <div className="theme-editor-overlay" onClick={(e) => { if (e.target === e.currentTarget) handleCancel() }}>
+      <div className="theme-editor-modal">
+        <div className="theme-editor-header">
+          <h3>{initial ? 'Edit Theme' : 'New Theme'}</h3>
+          <button className="set-btn set-btn-sm" onClick={handleCancel}>✕</button>
+        </div>
+        <div className="theme-editor-body">
+          {/* Name */}
+          <div className="theme-editor-name-row">
+            <label>Theme Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Theme"
+              maxLength={40}
+            />
+          </div>
+
+          {/* Variables by group */}
+          {groups.map((group) => {
+            const metas = THEME_VAR_META.filter((m) => m.group === group)
+            return (
+              <div key={group}>
+                <div className="theme-editor-group-label">{group}</div>
+                <div className="theme-editor-vars">
+                  {metas.map((meta) => {
+                    if (meta.type === 'slider') {
+                      const rawNum = parseFloat(vars[meta.key]) || 0
+                      const displayStr = meta.sliderUnit
+                        ? `${rawNum}${meta.sliderUnit}`
+                        : rawNum.toFixed(2)
+                      return (
+                        <div key={meta.key} className="theme-editor-slider-row">
+                          <label htmlFor={`tvar-${meta.key}`}>{meta.label}</label>
+                          <input
+                            id={`tvar-${meta.key}`}
+                            type="range"
+                            min={meta.sliderMin ?? 0}
+                            max={meta.sliderMax ?? 1}
+                            step={meta.sliderStep ?? 0.01}
+                            value={rawNum}
+                            onChange={(e) => {
+                              const n = parseFloat(e.target.value)
+                              setVar(meta.key, meta.sliderUnit ? `${n}${meta.sliderUnit}` : String(n))
+                            }}
+                          />
+                          <span className="theme-editor-slider-value">{displayStr}</span>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div key={meta.key} className="theme-editor-var-row">
+                        <label htmlFor={`tvar-${meta.key}`}>{meta.label}</label>
+                        {meta.type === 'color' ? (
+                          <div
+                            className="theme-editor-color-swatch"
+                            style={{ background: vars[meta.key] }}
+                            title={vars[meta.key]}
+                          >
+                            <input
+                              id={`tvar-${meta.key}`}
+                              type="color"
+                              value={toColorPickerValue(vars[meta.key])}
+                              onChange={(e) => setVar(meta.key, e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <input
+                            id={`tvar-${meta.key}`}
+                            type="text"
+                            className="theme-editor-text-input"
+                            value={vars[meta.key]}
+                            onChange={(e) => setVar(meta.key, e.target.value)}
+                            placeholder="8px"
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="theme-editor-footer">
+          <button className="set-btn" onClick={handleCancel}>Cancel</button>
+          <button className="set-btn set-btn-primary" onClick={handleSave} disabled={!name.trim()}>
+            <Check size={13} />  Save Theme
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── PersonalizationTab ─────────────────────────────────────────
+
 function PersonalizationTab() {
-  const wallpaper = useSystemStore((s) => s.wallpaper)
+  const wallpaper   = useSystemStore((s) => s.wallpaper)
   const setWallpaper = useSystemStore((s) => s.setWallpaper)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const fileRef     = useRef<HTMLInputElement>(null)
+
+  const activeThemeId    = useThemeStore((s) => s.activeThemeId)
+  const customThemes     = useThemeStore((s) => s.customThemes)
+  const setActiveTheme   = useThemeStore((s) => s.setActiveTheme)
+  const addCustomTheme   = useThemeStore((s) => s.addCustomTheme)
+  const updateCustomTheme = useThemeStore((s) => s.updateCustomTheme)
+  const deleteCustomTheme = useThemeStore((s) => s.deleteCustomTheme)
+
+  const [editTarget, setEditTarget] = useState<Theme | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setWallpaper(reader.result)
-      }
+      if (typeof reader.result === 'string') setWallpaper(reader.result)
     }
     reader.readAsDataURL(file)
   }
 
+  const allThemes = [...BUILT_IN_THEMES, ...customThemes]
+
   return (
     <div className="set-tab-content">
+
+      {/* ── Themes ─────────────────────────────────────────── */}
+      <div className="set-section-header">
+        <h3>Theme</h3>
+      </div>
+
+      <div className="theme-grid" style={{ marginBottom: 24 }}>
+        {allThemes.map((theme) => {
+          const isActive = theme.id === activeThemeId
+          return (
+            <div
+              key={theme.id}
+              className={`theme-card ${isActive ? 'theme-card-active' : ''}`}
+              onClick={() => setActiveTheme(theme.id)}
+              title={theme.name}
+            >
+              <ThemePreview theme={theme} />
+              <div className="theme-card-footer">
+                <span className="theme-card-name">{theme.name}</span>
+                {isActive && <span className="theme-card-active-dot" />}
+                {!theme.builtIn && (
+                  <div className="theme-card-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="theme-card-icon-btn"
+                      title="Edit"
+                      onClick={() => setEditTarget(theme)}
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      className="theme-card-icon-btn"
+                      title="Delete"
+                      style={{ color: '#ff5252' }}
+                      onClick={() => deleteCustomTheme(theme.id)}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* "New theme" card */}
+        <button
+          className="theme-card-add"
+          onClick={() => setShowCreate(true)}
+          title="Create custom theme"
+        >
+          <Plus size={20} />
+          <span>New Theme</span>
+        </button>
+      </div>
+
+      {/* ── Wallpaper ──────────────────────────────────────── */}
       <div className="set-section-header">
         <h3>Desktop Wallpaper</h3>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -1659,7 +2057,6 @@ function PersonalizationTab() {
       </div>
 
       <div className="wp-gallery">
-        {/* Default (no wallpaper) option */}
         <button
           className={`wp-thumb ${wallpaper === null ? 'wp-active' : ''}`}
           onClick={() => setWallpaper(null)}
@@ -1681,7 +2078,36 @@ function PersonalizationTab() {
           </button>
         ))}
       </div>
+
+      {/* ── Theme Editor (create) ───────────────────────────── */}
+      {showCreate && createPortal(
+        <ThemeEditor
+          onSave={(theme) => {
+            addCustomTheme(theme)
+            setActiveTheme(theme.id)
+            setShowCreate(false)
+          }}
+          onClose={() => setShowCreate(false)}
+        />,
+        document.body
+      )}
+
+      {/* ── Theme Editor (edit) ─────────────────────────────── */}
+      {editTarget && createPortal(
+        <ThemeEditor
+          initial={editTarget}
+          onSave={(theme) => {
+            updateCustomTheme(theme)
+            setEditTarget(null)
+            // If the edited theme wasn't active, the live preview may have applied
+            // it temporarily — re-apply the actual active theme now.
+            const active = useThemeStore.getState().getActiveTheme()
+            if (active.id !== theme.id) applyTheme(active)
+          }}
+          onClose={() => setEditTarget(null)}
+        />,
+        document.body
+      )}
     </div>
   )
 }
-

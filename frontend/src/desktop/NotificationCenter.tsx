@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react'
 import { useSystemStore } from '../store/systemStore'
 
@@ -23,7 +24,7 @@ export function NotificationCenter() {
         )}
       </button>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <>
           <div className="notification-backdrop" onClick={() => setIsOpen(false)} />
           <div className="notification-panel">
@@ -63,7 +64,8 @@ export function NotificationCenter() {
               ))}
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )

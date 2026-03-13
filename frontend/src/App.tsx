@@ -2,13 +2,11 @@ import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
 import { Desktop } from './desktop/Desktop'
 import { LoginScreen } from './apps/LoginScreen/LoginScreen'
-import { ForceChangePassword } from './apps/ForceChangePassword/ForceChangePassword'
 
 export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const isLoading = useAuthStore((s) => s.isLoading)
   const checkAuth = useAuthStore((s) => s.checkAuth)
-  const mustChangePassword = useAuthStore((s) => s.mustChangePassword)
 
   useEffect(() => {
     checkAuth()
@@ -37,12 +35,6 @@ export function App() {
 
   if (!isAuthenticated) {
     return <LoginScreen />
-  }
-
-  // Authenticated but using the default password — force a password change before
-  // granting access to the desktop. Prompt repeats every login until cleared.
-  if (mustChangePassword) {
-    return <ForceChangePassword />
   }
 
   return <Desktop />

@@ -1,10 +1,11 @@
 """
 nasOS OTA Update API
-POST /api/update/upload   – stage a .nasos package
-GET  /api/update/status   – current version, staged info, progress
-POST /api/update/apply    – apply staged package
-DELETE /api/update/staged – cancel staged package
-POST /api/update/rollback – restore previous snapshot
+POST /api/update/upload          – stage a .nasos package
+GET  /api/update/status          – current version, staged info, progress, disk space
+POST /api/update/apply           – apply staged package
+DELETE /api/update/staged        – cancel staged package
+POST /api/update/rollback        – restore previous snapshot
+DELETE /api/update/rollback      – delete rollback snapshot (reclaim disk space)
 """
 from __future__ import annotations
 
@@ -17,13 +18,15 @@ from app.services import update_service
 router = APIRouter(prefix="/api/update", tags=["update"])
 
 _is_linux = platform.system() == "Linux"
-_MAX_UPLOAD_MB = 512
-_MAX_BYTES = _MAX_UPLOAD_MB * 1024 * 1024
+
+# Minimum free space before we accept an OTA upload.
+# Apply phase needs ~50 MB extract + ~30 MB backup + pip temp files.
+_MIN_FREE_MB_FOR_UPLOAD = 200
 
 
 @router.get("/status")
 async def update_status():
-    """Return current version, staged package info, and live apply progress."""
+    """Return current version, staged package info, live apply progress, and disk space."""
     if not _is_linux:
         return update_service.get_update_status_mock()
     return update_service.get_update_status()
@@ -32,18 +35,27 @@ async def update_status():
 @router.post("/upload")
 async def upload_update(file: UploadFile):
     """
-    Upload a .nasos OTA package. The package is validated immediately;
-    it is not applied until POST /api/update/apply is called.
+    Upload a .nasos OTA package. Streams directly to the staging directory to
+    avoid exhausting the private /tmp tmpfs or reading the entire file into RAM.
+    The package is validated immediately; it is not applied until POST /apply.
     """
     if not file.filename or not file.filename.endswith(".nasos"):
         raise HTTPException(400, "File must have a .nasos extension")
 
-    data = await file.read()
-    if len(data) > _MAX_BYTES:
-        raise HTTPException(413, f"Package exceeds maximum allowed size ({_MAX_UPLOAD_MB} MB)")
+    # Pre-flight: refuse the upload if disk space is already dangerously low.
+    # This gives the user a clear, actionable error instead of a cryptic mid-stream
+    # failure (which Electron/Chromium surfaces as "error parsing body").
+    free_mb = update_service.get_free_mb()
+    if free_mb != -1 and free_mb < _MIN_FREE_MB_FOR_UPLOAD:
+        raise HTTPException(
+            507,
+            f"Insufficient disk space: {free_mb} MB free, {_MIN_FREE_MB_FOR_UPLOAD} MB needed. "
+            "Go to Settings → Updates → Clear rollback snapshot to reclaim space, "
+            "or remove /opt/nasos/data/update-staging/rollback via SSH.",
+        )
 
     try:
-        info = update_service.stage_update(data, file.filename)
+        info = await update_service.stage_update_stream(file, file.filename)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -87,3 +99,20 @@ async def rollback():
         return update_service.rollback_update()
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.delete("/rollback")
+async def delete_rollback_snapshot():
+    """
+    Delete the rollback snapshot from disk to reclaim space.
+
+    The rollback snapshot (~20-200 MB) lives in /opt/nasos/data/update-staging/rollback/
+    on the root partition.  After a successful OTA you no longer need it, and
+    on a Pi with a 3 GB root partition even 200 MB can be the difference between
+    services starting normally and all services (Samba, NFS, journal, ...) failing
+    because they cannot create PID / socket / lock files on a full filesystem.
+    """
+    try:
+        return update_service.clear_rollback_snapshot()
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc

@@ -1,10 +1,12 @@
 import platform
+import subprocess
 import time
 
 import psutil
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import settings
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -53,6 +55,38 @@ async def system_metrics():
         "temperature": _get_cpu_temp(),
         "network": _get_network_stats(),
     }
+
+
+@router.post("/restart", dependencies=[Depends(get_current_user)])
+async def system_restart():
+    """Restart the system."""
+    if settings.dev_mode:
+        return {"status": "ok", "message": "Restart simulated in dev mode"}
+    try:
+        subprocess.Popen(
+            ["/usr/bin/sudo", "/usr/bin/systemctl", "reboot"],
+            close_fds=True,
+            start_new_session=True,
+        )
+        return {"status": "ok", "message": "System is restarting"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/shutdown", dependencies=[Depends(get_current_user)])
+async def system_shutdown():
+    """Shut down the system."""
+    if settings.dev_mode:
+        return {"status": "ok", "message": "Shutdown simulated in dev mode"}
+    try:
+        subprocess.Popen(
+            ["/usr/bin/sudo", "/usr/bin/systemctl", "poweroff"],
+            close_fds=True,
+            start_new_session=True,
+        )
+        return {"status": "ok", "message": "System is shutting down"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _get_cpu_temp() -> float | None:

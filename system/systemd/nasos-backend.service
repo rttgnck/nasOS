@@ -1,5 +1,12 @@
 [Unit]
 Description=nasOS Backend API Server
+# docker.service is intentionally NOT in After= or Wants=.
+# The backend checks Docker availability at runtime on each API call, so there
+# is no need to delay startup waiting for dockerd to initialise (which can take
+# 30-90 s on a cold Pi or stall indefinitely when the root partition is full and
+# dockerd cannot write to /var/lib/docker).  Removing this ordering means the
+# backend — and the Electron UI — come up as soon as the network is ready, not
+# after the Docker timeout expires.
 After=network-online.target nasos-firstboot.service
 Wants=network-online.target
 
@@ -9,6 +16,7 @@ User=nasos
 Group=nasos
 SupplementaryGroups=shadow
 WorkingDirectory=/opt/nasos/backend
+EnvironmentFile=-/opt/nasos/.env
 Environment=NASOS_DEV_MODE=false
 Environment=NASOS_DATA_DIR=/opt/nasos/data
 Environment=NASOS_DB_PATH=/opt/nasos/data/nasos.db
@@ -19,12 +27,12 @@ StandardOutput=journal
 StandardError=journal
 
 # Security hardening
-# ProtectSystem=full makes /usr and /boot read-only but leaves /etc writable
-# (the backend needs sudo for share config: smb.conf, /etc/exports)
-# NoNewPrivileges is NOT set — backend needs sudo via share-helper.sh
-ProtectSystem=full
-ReadWritePaths=/opt/nasos/data /srv/nasos
-ReadOnlyPaths=/etc/shadow
+# ProtectSystem is intentionally NOT set.  The backend's core function requires
+# sudo writes to /etc via share-helper.sh (chpasswd, smbpasswd, smb.conf,
+# /etc/exports, useradd).  Even ProtectSystem=true creates a mount namespace
+# that makes these writes fail — and the restriction cascades to child processes
+# including the OTA apply script, preventing service-file deployments.
+# NoNewPrivileges is NOT set — backend needs sudo privilege escalation.
 PrivateTmp=true
 
 [Install]

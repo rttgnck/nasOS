@@ -7,91 +7,164 @@
 # Usage: sudo /opt/nasos/scripts/share-helper.sh <command> [args...]
 set -euo pipefail
 
+# ── Mount-namespace escape ───────────────────────────────────────────────────
+# When the backend runs under systemd with ProtectSystem=, child processes
+# (including this script invoked via sudo) inherit a restricted mount namespace
+# where /etc appears read-only even after `mount -o remount,rw /`.
+# Detect this and re-exec inside PID 1's (init) mount namespace where /etc
+# is truly writable.  nsenter requires root — which we already have via sudo.
+if [ "$(readlink /proc/self/ns/mnt 2>/dev/null)" != "$(readlink /proc/1/ns/mnt 2>/dev/null)" ]; then
+  exec nsenter -t 1 -m -- "$0" "$@"
+fi
+
+LOCKFILE="/run/share-helper.lock"
+
 CMD="${1:-}"
 shift || true
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+ensure_rw() {
+  # Ensure / is actually writable.  findmnt can report "rw" even when the
+  # underlying block device is read-only (e.g. after fs errors), so we also
+  # do a real write test to /etc.
+  local need_remount=0
+
+  if findmnt -n -o OPTIONS / | grep -qE '(^|,)ro(,|$)'; then
+    need_remount=1
+  elif ! touch /etc/.rw-test 2>/dev/null; then
+    # findmnt says rw but actual writes fail — force remount
+    need_remount=1
+  else
+    rm -f /etc/.rw-test
+  fi
+
+  if [ "$need_remount" -eq 1 ]; then
+    ROOT_WAS_RO=1
+    mount -o remount,rw / || { echo "Failed to remount / rw" >&2; exit 1; }
+    # Verify the remount actually worked
+    if ! touch /etc/.rw-test 2>/dev/null; then
+      echo "Remounted / as rw but /etc is still not writable" >&2
+      exit 1
+    fi
+    rm -f /etc/.rw-test
+  fi
+}
+
+restore_ro() {
+  if [ "${ROOT_WAS_RO:-0}" -eq 1 ]; then
+    ROOT_WAS_RO=0
+    mount -o remount,ro / 2>/dev/null || true
+  fi
+}
+
+set_user_password() {
+  # Set the Linux password AND Samba password for a user.
+  # Usage: set_user_password <username> <password>
+  # Caller is responsible for ensure_rw / restore_ro around this call.
+  local username="$1" password="$2"
+
+  # Use chpasswd — the standard tool for non-interactive password changes.
+  # It handles /etc/shadow locking and atomic writes internally.
+  printf '%s:%s\n' "$username" "$password" | chpasswd || {
+    echo "chpasswd failed for '$username'" >&2
+    exit 1
+  }
+
+  # Update Samba password database (add/update + enable).
+  printf '%s\n%s\n' "$password" "$password" | smbpasswd -a -s "$username" 2>/dev/null || true
+  smbpasswd -e "$username" 2>/dev/null || true
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
 case "$CMD" in
   write-smb)
-    # Write smb.conf from stdin
     cat > /etc/samba/smb.conf
     ;;
 
   reload-smb)
-    # Reload samba config (restart if reload fails)
     systemctl reload smbd 2>/dev/null || systemctl restart smbd 2>/dev/null || true
     ;;
 
   write-exports)
-    # Write /etc/exports from stdin
     cat > /etc/exports
     ;;
 
   reload-nfs)
-    # Re-export NFS shares
     exportfs -ra 2>/dev/null || true
     ;;
 
   add-smb-user)
-    # Add a user to Samba password database
-    # Usage: share-helper.sh add-smb-user <username>
-    # Password is read from stdin (two lines: password\npassword\n)
     USERNAME="${1:?Usage: share-helper.sh add-smb-user <username>}"
     smbpasswd -a -s "$USERNAME" 2>/dev/null
     smbpasswd -e "$USERNAME" 2>/dev/null || true
     ;;
 
   del-smb-user)
-    # Remove a user from Samba password database
-    # Usage: share-helper.sh del-smb-user <username>
     USERNAME="${1:?Usage: share-helper.sh del-smb-user <username>}"
     smbpasswd -x "$USERNAME" 2>/dev/null || true
     ;;
 
   set-password)
-    # Set the Linux system password AND Samba password for an existing user.
-    # Usage: share-helper.sh set-password <username>
-    # The new password is passed on stdin (one line only)
     USERNAME="${1:?Usage: share-helper.sh set-password <username>}"
-    IFS= read -r PASSWORD
-    # Update Linux shadow password
-    printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
-    # Update Samba password database (add/update + enable)
-    printf '%s\n%s\n' "$PASSWORD" "$PASSWORD" | smbpasswd -a -s "$USERNAME" 2>/dev/null || true
-    smbpasswd -e "$USERNAME" 2>/dev/null || true
+    IFS= read -r PASSWORD || true
+    if [ -z "$PASSWORD" ]; then
+      echo "Error: no password received on stdin" >&2
+      exit 1
+    fi
+    (
+      flock -x -w 10 200 || { echo "Could not acquire lock" >&2; exit 1; }
+      ROOT_WAS_RO=0
+      trap restore_ro EXIT
+      ensure_rw
+      set_user_password "$USERNAME" "$PASSWORD"
+      restore_ro
+    ) 200>"$LOCKFILE"
     ;;
 
   create-user)
-    # Create a new Linux system user, set their password, and add to Samba.
-    # Usage: share-helper.sh create-user <username> <fullname> <groups>
-    # The new password is passed on stdin (one line only)
     USERNAME="${1:?Usage: share-helper.sh create-user <username>}"
     FULLNAME="${2:-}"
     GROUPS="${3:-nasos}"
-    IFS= read -r PASSWORD
-    # Create the Linux user
-    if [ -n "$FULLNAME" ]; then
-      useradd -m -s /bin/bash -c "$FULLNAME" -G "$GROUPS" "$USERNAME"
-    else
-      useradd -m -s /bin/bash -G "$GROUPS" "$USERNAME"
+    IFS= read -r PASSWORD || true
+    if [ -z "$PASSWORD" ]; then
+      echo "Error: no password received on stdin" >&2
+      exit 1
     fi
-    # Set Linux password
-    printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
-    # Add to Samba password database and enable
-    printf '%s\n%s\n' "$PASSWORD" "$PASSWORD" | smbpasswd -a -s "$USERNAME" 2>/dev/null || true
-    smbpasswd -e "$USERNAME" 2>/dev/null || true
+    (
+      flock -x -w 10 200 || { echo "Could not acquire lock" >&2; exit 1; }
+      ROOT_WAS_RO=0
+      trap restore_ro EXIT
+
+      # Remount before useradd — it writes to /etc/passwd, shadow, and group.
+      ensure_rw
+
+      if [ -n "$FULLNAME" ]; then
+        useradd -m -s /bin/bash -c "$FULLNAME" -G "$GROUPS" "$USERNAME"
+      else
+        useradd -m -s /bin/bash -G "$GROUPS" "$USERNAME"
+      fi
+
+      set_user_password "$USERNAME" "$PASSWORD"
+      restore_ro
+    ) 200>"$LOCKFILE"
     ;;
 
   delete-user)
-    # Remove a Linux user (and their home dir) plus their Samba entry.
-    # Usage: share-helper.sh delete-user <username>
     USERNAME="${1:?Usage: share-helper.sh delete-user <username>}"
-    smbpasswd -x "$USERNAME" 2>/dev/null || true
-    userdel -r "$USERNAME" 2>/dev/null || true
+    (
+      flock -x -w 10 200 || { echo "Could not acquire lock" >&2; exit 1; }
+      ROOT_WAS_RO=0
+      trap restore_ro EXIT
+      ensure_rw
+      smbpasswd -x "$USERNAME" 2>/dev/null || true
+      userdel -r "$USERNAME" 2>/dev/null || true
+      restore_ro
+    ) 200>"$LOCKFILE"
     ;;
 
   mkdir-share)
-    # Create a share directory with proper ownership
-    # Usage: share-helper.sh mkdir-share <path> [owner]
     SHARE_PATH="${1:?Usage: share-helper.sh mkdir-share <path> [owner]}"
     OWNER="${2:-nasos}"
     mkdir -p "$SHARE_PATH"
@@ -99,9 +172,17 @@ case "$CMD" in
     chmod 2775 "$SHARE_PATH"
     ;;
 
+  add-user-groups)
+    USERNAME="${1:?Usage: share-helper.sh add-user-groups <username> <group...>}"
+    shift
+    for _grp in "$@"; do
+      getent group "$_grp" &>/dev/null && usermod -aG "$_grp" "$USERNAME" 2>/dev/null || true
+    done
+    ;;
+
   *)
     echo "Unknown command: $CMD" >&2
-    echo "Usage: share-helper.sh {write-smb|reload-smb|write-exports|reload-nfs|add-smb-user|del-smb-user|set-password|create-user|delete-user|mkdir-share}" >&2
+    echo "Usage: share-helper.sh {write-smb|reload-smb|write-exports|reload-nfs|add-smb-user|del-smb-user|set-password|create-user|delete-user|mkdir-share|add-user-groups}" >&2
     exit 1
     ;;
 esac

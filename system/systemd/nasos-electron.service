@@ -21,9 +21,32 @@ Environment=WLR_NO_HARDWARE_CURSORS=1
 # NOTE: WLR_LIBINPUT_NO_DEVICES must NOT be set — removing it allows wlroots/cage
 # to use libinput, which is required for mouse/touchpad input to work.
 
-# Create the XDG_RUNTIME_DIR for the service user (runs as root via "+" prefix)
-# Uses id -u to dynamically resolve the UID even if Pi Imager renamed the user
-ExecStartPre=+/bin/bash -c 'UID_VAL=$(id -u nasos 2>/dev/null || echo 1000); mkdir -p /run/user/$UID_VAL; chown $UID_VAL:$UID_VAL /run/user/$UID_VAL; chmod 700 /run/user/$UID_VAL'
+# Create XDG_RUNTIME_DIR and verify Electron install (runs as root via "+" prefix).
+# Uses id -u to dynamically resolve the UID even if Pi Imager renamed the user.
+# Also clears stale GPU/shader caches that can cause crash loops after OTA,
+# and verifies the Electron binary + critical support files exist — a partial
+# cp -r during OTA can leave the binary present but crash on startup.
+# If critical files are missing, attempt self-repair via npm install.
+ExecStartPre=+/bin/bash -c '\
+  UID_VAL=$(id -u nasos 2>/dev/null || echo 1000); \
+  mkdir -p /run/user/$UID_VAL; \
+  chown $UID_VAL:$UID_VAL /run/user/$UID_VAL; \
+  chmod 700 /run/user/$UID_VAL; \
+  HOME_DIR=$(eval echo "~$(id -nu $UID_VAL 2>/dev/null || echo nasos)"); \
+  rm -rf "$HOME_DIR/.config/Electron/GPUCache" "$HOME_DIR/.config/Electron/Cache" 2>/dev/null || true; \
+  ELECTRON_DIR=/opt/nasos/electron; \
+  ELECTRON_BIN="$ELECTRON_DIR/node_modules/.bin/electron"; \
+  ELECTRON_DIST="$ELECTRON_DIR/node_modules/electron/dist"; \
+  if [ ! -x "$ELECTRON_BIN" ] || [ ! -f "$ELECTRON_DIST/electron" ] || [ ! -f "$ELECTRON_DIST/v8_context_snapshot.bin" ]; then \
+    echo "nasOS: Electron install incomplete — attempting repair via npm install" >&2; \
+    cd "$ELECTRON_DIR" && npm install --omit=dev --prefer-offline 2>&1 | tail -5; \
+    chown -R $UID_VAL:$UID_VAL "$ELECTRON_DIR/node_modules" 2>/dev/null || true; \
+    if [ ! -x "$ELECTRON_BIN" ]; then \
+      echo "nasOS: Electron repair FAILED — binary still missing at $ELECTRON_BIN" >&2; \
+      exit 1; \
+    fi; \
+    echo "nasOS: Electron repair succeeded" >&2; \
+  fi'
 
 # Set XDG_RUNTIME_DIR dynamically via bash wrapper so it resolves the actual UID
 # --no-sandbox / --disable-gpu-sandbox: required when Electron runs as a system service
@@ -31,8 +54,16 @@ ExecStartPre=+/bin/bash -c 'UID_VAL=$(id -u nasos 2>/dev/null || echo 1000); mkd
 #   renderer when it thinks the window is in the background (very common on kiosk setups)
 # --disable-features=PaintHolding: prevents blank frames being held during content load
 ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/electron/node_modules/.bin/electron /opt/nasos/electron/main.js --no-sandbox --disable-gpu-sandbox --disable-renderer-backgrounding --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-features=PaintHolding'
-Restart=on-failure
-RestartSec=3
+Restart=always
+RestartSec=5
+# Disable the systemd restart-burst limit so the service is retried
+# indefinitely.  Without this, 5 rapid failures in 10 s cause systemd
+# to give up entirely, leaving the TTY frozen on the last boot message.
+StartLimitIntervalSec=0
+# Give cage + Electron enough time to initialise on cold Pi hardware.
+# The default (90 s) can be reached on a freshly-booted Pi 4/5 when the GPU
+# memory hasn't settled yet; 120 s avoids a spurious failure → restart loop.
+TimeoutStartSec=120
 
 # TTY for display output
 TTYPath=/dev/tty1

@@ -224,10 +224,13 @@ def _share_to_dict(share: Share) -> dict:
 # ── Privileged helper interface ──────────────────────────────────────
 
 
-def _sudo_helper(*args: str, stdin_data: str | None = None) -> bool:
+def _sudo_helper(*args: str, stdin_data: str | None = None, raise_on_error: bool = False) -> bool:
     """Run the privileged share-helper script via sudo.
 
     Returns True on success, False on failure.
+    When raise_on_error=True, raises RuntimeError with the actual stderr
+    instead of silently returning False — use this for user-facing operations
+    like password change so the real cause reaches the API response.
     """
     cmd = ["sudo", HELPER, *args]
     try:
@@ -239,19 +242,28 @@ def _sudo_helper(*args: str, stdin_data: str | None = None) -> bool:
             timeout=15,
         )
         if result.returncode != 0:
+            detail = result.stderr.strip() or f"exit code {result.returncode}"
             _log.warning(
                 "share-helper %s failed (rc=%d): %s",
                 args[0] if args else "?",
                 result.returncode,
-                result.stderr.strip(),
+                detail,
             )
+            if raise_on_error:
+                raise RuntimeError(detail)
             return False
         return True
     except subprocess.TimeoutExpired:
-        _log.warning("share-helper %s timed out", args[0] if args else "?")
+        msg = f"share-helper {args[0] if args else '?'} timed out after 15 s"
+        _log.warning(msg)
+        if raise_on_error:
+            raise RuntimeError(msg)
         return False
     except FileNotFoundError:
-        _log.warning("sudo or share-helper not found")
+        msg = "Privileged helper script not found — check that nasOS is properly installed (sudo / share-helper.sh missing)"
+        _log.warning(msg)
+        if raise_on_error:
+            raise RuntimeError(msg)
         return False
 
 

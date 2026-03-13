@@ -1,5 +1,11 @@
 [Unit]
 Description=nasOS First Boot Setup
+# This service runs EXACTLY ONCE — on the very first boot after imaging.
+# ConditionPathExists=! means "only run if this file does NOT exist".
+# first-boot.sh creates .setup-complete at the end of its run, so every
+# subsequent boot (including after an OTA update) skips this service.
+# OTA updates must NOT delete /opt/nasos/data/.setup-complete; the apply
+# script only touches /opt/nasos/backend|frontend|electron|scripts.
 ConditionPathExists=!/opt/nasos/data/.setup-complete
 After=local-fs.target network.target
 Before=nasos-backend.service nasos-electron.service ssh.service sshd.service

@@ -16,6 +16,15 @@ mkdir -p "$DATA_DIR"/{db,logs,backups,docker,ssl}
     mkdir -p /srv/nasos/{shares,timemachine}
 }
 
+# Create Docker data directory on the data partition NOW, before Docker starts.
+# /etc/docker/daemon.json (set at image build) points data-root here.
+# If the data partition failed to mount above, Docker will fall back to creating
+# /srv/nasos/.docker on the root filesystem — not ideal but not fatal.
+mkdir -p /srv/nasos/.docker
+chown root:root /srv/nasos/.docker
+chmod 700 /srv/nasos/.docker
+echo ">>> Docker data dir ready: /srv/nasos/.docker"
+
 # ─────────────────────────────────────────
 # Fix Pi Imager User Renaming
 # If Pi Imager was used, the default 'nasos' user (UID 1000) was renamed to something else.
@@ -40,6 +49,11 @@ fi
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh *" > /etc/sudoers.d/nasos-backend
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh" >> /etc/sudoers.d/nasos-backend
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/apply-update.sh *" >> /etc/sudoers.d/nasos-backend
+# OTA updates via isolated systemd-run cgroup
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=nasos-apply-update --description=nasOS OTA apply --collect /opt/nasos/scripts/apply-update.sh *" >> /etc/sudoers.d/nasos-backend
+# Power management
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot" >> /etc/sudoers.d/nasos-backend
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff" >> /etc/sudoers.d/nasos-backend
 chmod 440 /etc/sudoers.d/nasos-backend
 echo ">>> Installed sudoers for user: $PRIMARY_USER"
 
@@ -51,17 +65,23 @@ echo ">>> Installed sudoers for user: $PRIMARY_USER"
 # Users are prompted to change this on their first dashboard login.
 # ─────────────────────────────────────────
 ADMIN_DEFAULT_PW="nasos"
+# Admin should have the same groups as the primary nasos user so it has full
+# system access (video/render for display, docker for containers, shadow for
+# auth, etc.).  The primary user gets these in 00-configure-base and 02-configure-services.
+ADMIN_GROUPS="nasos,sudo,video,render,audio,input,plugdev,docker,shadow"
 if ! id admin &>/dev/null; then
-  # Create the admin Linux account and add it to the nasos + sudo groups
-  useradd -m -s /bin/bash -c "Administrator" -G "nasos,sudo" admin 2>/dev/null \
+  # Create the admin Linux account with all required groups
+  useradd -m -s /bin/bash -c "Administrator" -G "$ADMIN_GROUPS" admin 2>/dev/null \
     || useradd -m -s /bin/bash -c "Administrator" admin 2>/dev/null || true
   printf '%s:%s\n' "admin" "$ADMIN_DEFAULT_PW" | chpasswd
   echo ">>> Created built-in admin user"
 else
   echo ">>> Built-in admin user already exists — skipping creation"
 fi
-# Ensure admin is in the nasos group (idempotent on re-runs)
-usermod -aG nasos admin 2>/dev/null || true
+# Ensure admin is in all required groups (idempotent on re-runs)
+for grp in nasos sudo video render audio input plugdev docker shadow; do
+  getent group "$grp" &>/dev/null && usermod -aG "$grp" admin 2>/dev/null || true
+done
 # Add admin to Samba password database with the default password so network
 # shares work immediately — no password setup step required for the admin account.
 printf '%s\n%s\n' "$ADMIN_DEFAULT_PW" "$ADMIN_DEFAULT_PW" | smbpasswd -a -s admin 2>/dev/null || true

@@ -44,3 +44,6 @@ image-builder/deploy/
 
 # AI assistant config
 .claude/
+
+# Custom
+_Archive/

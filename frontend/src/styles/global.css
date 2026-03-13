@@ -14,6 +14,32 @@
   --radius-sm: 4px;
   --taskbar-height: 48px;
   --titlebar-height: 36px;
+  /* Glass effect — per-surface, off by default */
+  --glass-blur-window: 0px;
+  --glass-blur-titlebar: 0px;
+  --glass-blur-taskbar: 0px;
+  --glass-blur-startmenu: 0px;
+  --glass-blur-popup: 0px;
+  --glass-blur-widget: 0px;
+  --glass-blur-notification: 0px;
+  --glass-blur-modal: 0px;
+  --glass-window-alpha: 1;
+  --glass-titlebar-alpha: 1;
+  --glass-taskbar-alpha: 1;
+  --glass-startmenu-alpha: 1;
+  --glass-popup-alpha: 1;
+  --glass-widget-alpha: 1;
+  --glass-notification-alpha: 1;
+  --glass-modal-alpha: 1;
+  /* Derived: 1 = show border, 0 = hide (set by JS in applyTheme) */
+  --glass-border-window: 1;
+  --glass-border-titlebar: 1;
+  --glass-border-taskbar: 1;
+  --glass-border-startmenu: 1;
+  --glass-border-popup: 1;
+  --glass-border-widget: 1;
+  --glass-border-notification: 1;
+  --glass-border-modal: 1;
 }
 
 * {
@@ -66,4 +92,58 @@ input, textarea, select {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Liquid Glass Theme Overrides
+   Applied when data-theme="liquid-glass" is set on <html>
+═══════════════════════════════════════════════════════════════════ */
+
+[data-theme="liquid-glass"] .desktop {
+  background: linear-gradient(
+    135deg,
+    #06091a 0%,
+    #0d1b4b 30%,
+    #1a2060 55%,
+    #2e1b6e 75%,
+    #0d1535 100%
+  );
+}
+
+/* No pixel border — use an inset highlight ring + outer shadow instead */
+[data-theme="liquid-glass"] .window {
+  border-color: transparent;
+  box-shadow:
+    0 10px 44px rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.07) inset,
+    0 1px 0 rgba(255, 255, 255, 0.13) inset;
+}
+
+/* Focused window: cyan accent inner glow instead of red border */
+[data-theme="liquid-glass"] .window[data-focused="true"] {
+  border-color: transparent;
+  box-shadow:
+    0 14px 52px rgba(0, 0, 0, 0.44),
+    0 0 0 1px rgba(79, 195, 247, 0.22) inset,
+    0 1px 0 rgba(255, 255, 255, 0.16) inset;
+}
+
+/* Titlebar separator: subtle frosted divider */
+[data-theme="liquid-glass"] .window-titlebar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Taskbar: no hard border-top, use a soft top glow */
+[data-theme="liquid-glass"] .taskbar {
+  border-top-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.22);
+}
+
+/* Settings sidebar glass edge */
+[data-theme="liquid-glass"] .set-sidebar {
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="liquid-glass"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
 }

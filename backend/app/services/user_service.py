@@ -95,7 +95,8 @@ def ensure_admin_user() -> None:
     # Admin user is missing — this is an existing image that pre-dates this feature.
     _log.info("Built-in admin user not found — creating now (legacy image)")
     ok = _sudo_helper(
-        "create-user", "admin", "Administrator", "nasos,sudo",
+        "create-user", "admin", "Administrator",
+        "nasos,sudo,video,render,audio,input,plugdev,docker,shadow",
         stdin_data=f"{ADMIN_DEFAULT_PASSWORD}\n",
     )
     if not ok:
@@ -262,9 +263,9 @@ def change_password(username: str, new_password: str) -> dict:
 
     from app.services.share_service import _sudo_helper
 
-    ok = _sudo_helper("set-password", username, stdin_data=f"{new_password}\n")
-    if not ok:
-        raise RuntimeError(f"Failed to set password for '{username}' — check /var/log/syslog")
+    # raise_on_error=True surfaces the actual stderr from chpasswd/smbpasswd
+    # so the API response (and the frontend) shows the real failure reason.
+    _sudo_helper("set-password", username, stdin_data=f"{new_password}\n", raise_on_error=True)
 
     _log.info("Password changed for user '%s' (Linux + Samba)", username)
     return {"ok": True}

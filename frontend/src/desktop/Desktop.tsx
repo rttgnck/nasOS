@@ -20,6 +20,7 @@ import { Settings } from '../apps/Settings/Settings'
 import { SystemMonitor } from '../apps/SystemMonitor/SystemMonitor'
 import { PlaceholderApp } from '../apps/PlaceholderApp'
 import { ToastContainer } from './ToastContainer'
+import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
 
 export function Desktop() {
   useMetricsWebSocket()
@@ -120,6 +121,9 @@ export function Desktop() {
 
       {/* Toast Notifications */}
       <ToastContainer />
+
+      {/* Password change modal (dismissible, shown when using default password) */}
+      <ChangePasswordModal />
 
       {/* Taskbar */}
       <Taskbar />

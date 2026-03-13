@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FolderOpen, Radio, Link2, Pencil, Trash2, Copy, User, Pause, Play } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import { useSystemStore } from '../../store/systemStore'
 
@@ -72,7 +71,7 @@ function CopyButton({ text }: { text: string }) {
   }
   return (
     <button className="shr-copy-btn" onClick={handleCopy} title="Copy path">
-      {copied ? '✓' : <Copy size={12} />}
+      {copied ? '✓' : '⎘'}
     </button>
   )
 }
@@ -186,7 +185,7 @@ export function ShareManager() {
     <div className="shr-root">
       {/* Connection guide banner */}
       <div className="shr-connect-guide">
-        <div className="shr-connect-guide-title"><Radio size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} /> How to Connect</div>
+        <div className="shr-connect-guide-title">📡 How to Connect</div>
         <div className="shr-connect-guide-rows">
           <div className="shr-connect-guide-row">
             <span className="shr-connect-guide-label">Guest / no password:</span>
@@ -215,7 +214,7 @@ export function ShareManager() {
       {/* Share list */}
       {shares.length === 0 ? (
         <div className="shr-empty">
-          <div className="shr-empty-icon"><Link2 size={40} /></div>
+          <div className="shr-empty-icon">🔗</div>
           <div className="shr-empty-title">No Shares Configured</div>
           <div className="shr-empty-text">
             Create your first network share to make files accessible over SMB, NFS, or WebDAV.
@@ -233,7 +232,7 @@ export function ShareManager() {
             >
               <div className="shr-card-header">
                 <div className="shr-card-title">
-                  <span className="shr-card-icon"><FolderOpen size={20} /></span>
+                  <span className="shr-card-icon">📂</span>
                   <span className="shr-card-name">{share.name}</span>
                   <span
                     className="shr-protocol-badge"
@@ -249,21 +248,21 @@ export function ShareManager() {
                     title={share.enabled ? 'Disable' : 'Enable'}
                     onClick={() => handleToggle(share.id)}
                   >
-                    {share.enabled ? <Pause size={14} /> : <Play size={14} />}
+                    {share.enabled ? '⏸' : '▶'}
                   </button>
                   <button
                     className="shr-btn-icon"
                     title="Edit"
                     onClick={() => openEdit(share)}
                   >
-                    <Pencil size={14} />
+                    ✏️
                   </button>
                   <button
                     className="shr-btn-icon shr-btn-danger"
                     title="Delete"
                     onClick={() => handleDelete(share.id)}
                   >
-                    <Trash2 size={14} />
+                    🗑
                   </button>
                 </div>
               </div>
@@ -283,8 +282,8 @@ export function ShareManager() {
                   {share.read_only && <span className="shr-meta-tag">Read Only</span>}
                   {share.guest_access && <span className="shr-meta-tag">Guest Access</span>}
                   {share.allowed_users.length > 0 && (
-                    <span className="shr-meta-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <User size={12} /> {share.allowed_users.length} user{share.allowed_users.length !== 1 ? 's' : ''}
+                    <span className="shr-meta-tag">
+                      👤 {share.allowed_users.length} user{share.allowed_users.length !== 1 ? 's' : ''}
                     </span>
                   )}
                 </div>

@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { useAuthStore } from '../../store/authStore'
-import { PasswordInput } from '../../components/PasswordInput'
 
 export function LoginScreen() {
   const login = useAuthStore((s) => s.login)
@@ -51,8 +50,9 @@ export function LoginScreen() {
 
           <div className="login-field">
             <label htmlFor="login-pass">Password</label>
-            <PasswordInput
+            <input
               id="login-pass"
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"

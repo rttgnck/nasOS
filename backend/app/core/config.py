@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     port: int = 8080
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:3000"]
 
-    # Dev mode — mocks system calls on non-Linux
-    dev_mode: bool = True
+    # Dev mode — mocks system calls on non-Linux.
+    # Auto-detected from platform; override with NASOS_DEV_MODE env var.
+    dev_mode: bool = _is_dev_platform
 
     model_config = {"env_prefix": "NASOS_"}
 

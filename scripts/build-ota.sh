@@ -21,7 +21,7 @@ for arg in "$@"; do
 done
 # If first arg is a flag not a version, fall back to date
 if [[ -z "$VERSION" || "$VERSION" == --* ]]; then
-  VERSION="$(date +%Y.%m.%d)"
+  VERSION="$(date +%m%d%Y-%H%M%S)"
 fi
 
 DIST_DIR="$PROJECT_ROOT/dist"
@@ -68,6 +68,45 @@ success "Staged: backend/"
 mkdir -p "$STAGE_DIR/scripts"
 cp "$PROJECT_ROOT/system/scripts/"*.sh "$STAGE_DIR/scripts/"
 success "Staged: system/scripts/"
+
+mkdir -p "$STAGE_DIR/systemd"
+cp "$PROJECT_ROOT/system/systemd/"*.service "$STAGE_DIR/systemd/"
+success "Staged: system/systemd/ ($(ls "$STAGE_DIR/systemd/" | wc -l | tr -d ' ') service files)"
+
+# systemd drop-ins — deployed into /etc/systemd/system/<unit>.d/ on device
+# Currently: docker.service.d/nasos-data-partition.conf (moves Docker to data partition)
+mkdir -p "$STAGE_DIR/systemd-dropin/docker.service.d"
+cat > "$STAGE_DIR/systemd-dropin/docker.service.d/nasos-data-partition.conf" <<'DOCKERDROP'
+[Unit]
+After=nasos-firstboot.service
+DOCKERDROP
+success "Staged: systemd-dropin/ (docker data-partition ordering)"
+
+# System config files — deployed to /etc/ on device
+# Docker daemon.json: moves data-root to the data partition (/srv/nasos/.docker).
+# This frees /var/lib/docker off the root filesystem, which was the largest
+# variable-size space consumer causing the root partition to fill up over time.
+mkdir -p "$STAGE_DIR/sysconfig/docker"
+cat > "$STAGE_DIR/sysconfig/docker/daemon.json" <<'DOCKERCFG'
+{
+  "data-root": "/srv/nasos/.docker",
+  "log-driver": "local",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+DOCKERCFG
+
+# journald size cap — prevents logs from eating into OTA/service headroom
+mkdir -p "$STAGE_DIR/sysconfig/journald"
+cat > "$STAGE_DIR/sysconfig/journald/nasos-size.conf" <<'JOURNALD'
+[Journal]
+SystemMaxUse=200M
+SystemKeepFree=500M
+RuntimeMaxUse=50M
+JOURNALD
+success "Staged: sysconfig/ (docker daemon.json + journald cap)"
 
 if [[ "$INCLUDE_ELECTRON" == true ]]; then
   mkdir -p "$STAGE_DIR/electron"

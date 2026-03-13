@@ -30,11 +30,40 @@ const DESKTOP_ICONS: DesktopIcon[] = [
 
 const GRID_SIZE = 100
 const ICON_MARGIN = 20
+const TASKBAR_HEIGHT = 48
 
+/** Snap raw pixel coords to the nearest grid cell. */
+function snapToGrid(x: number, y: number): IconPosition {
+  return {
+    x: Math.max(ICON_MARGIN, Math.round((x - ICON_MARGIN) / GRID_SIZE) * GRID_SIZE + ICON_MARGIN),
+    y: Math.max(ICON_MARGIN, Math.round((y - ICON_MARGIN) / GRID_SIZE) * GRID_SIZE + ICON_MARGIN),
+  }
+}
+
+/** Clamp a snapped position so icons never overlap the taskbar. */
+function clampPosition(pos: IconPosition): IconPosition {
+  const maxY = window.innerHeight - TASKBAR_HEIGHT - GRID_SIZE
+  return {
+    x: Math.max(ICON_MARGIN, pos.x),
+    y: Math.min(maxY, Math.max(ICON_MARGIN, pos.y)),
+  }
+}
+
+/**
+ * Default positions: icons fill a column from the top; when the column would
+ * overflow into the taskbar area the remaining icons wrap to a second column.
+ */
 function getDefaultPositions(): Record<string, IconPosition> {
   const positions: Record<string, IconPosition> = {}
+  const availableHeight = window.innerHeight - TASKBAR_HEIGHT - ICON_MARGIN * 2
+  const iconsPerColumn = Math.max(1, Math.floor(availableHeight / GRID_SIZE))
   DESKTOP_ICONS.forEach((icon, index) => {
-    positions[icon.id] = { x: ICON_MARGIN, y: ICON_MARGIN + index * GRID_SIZE }
+    const col = Math.floor(index / iconsPerColumn)
+    const row = index % iconsPerColumn
+    positions[icon.id] = {
+      x: ICON_MARGIN + col * GRID_SIZE,
+      y: ICON_MARGIN + row * GRID_SIZE,
+    }
   })
   return positions
 }
@@ -44,8 +73,14 @@ function loadPositions(): Record<string, IconPosition> {
   try {
     const saved = localStorage.getItem('nasos-desktop-icon-positions')
     if (saved) {
-      // Merge: saved positions take priority, but any new icons get their default position
-      return { ...defaults, ...JSON.parse(saved) }
+      // Merge: saved positions take priority, but any new icons get their default position.
+      // Re-snap & clamp everything so stale off-grid / below-taskbar positions are fixed.
+      const merged = { ...defaults, ...JSON.parse(saved) }
+      const corrected: Record<string, IconPosition> = {}
+      for (const [id, pos] of Object.entries(merged)) {
+        corrected[id] = clampPosition(snapToGrid((pos as IconPosition).x, (pos as IconPosition).y))
+      }
+      return corrected
     }
   } catch { /* ignore */ }
   return defaults
@@ -53,13 +88,6 @@ function loadPositions(): Record<string, IconPosition> {
 
 function savePositions(positions: Record<string, IconPosition>) {
   localStorage.setItem('nasos-desktop-icon-positions', JSON.stringify(positions))
-}
-
-function snapToGrid(x: number, y: number): IconPosition {
-  return {
-    x: Math.max(0, Math.round(x / GRID_SIZE) * GRID_SIZE + ICON_MARGIN),
-    y: Math.max(0, Math.round(y / GRID_SIZE) * GRID_SIZE + ICON_MARGIN),
-  }
 }
 
 export function DesktopIcons() {
@@ -73,6 +101,28 @@ export function DesktopIcons() {
   useEffect(() => {
     savePositions(positions)
   }, [positions])
+
+  // On resize, re-validate that no icon overlaps the taskbar
+  useEffect(() => {
+    const handleResize = () => {
+      setPositions((prev) => {
+        const next = { ...prev }
+        let changed = false
+        for (const id of Object.keys(next)) {
+          const current = next[id]
+          if (!current) continue
+          const clamped = clampPosition(current)
+          if (clamped.x !== current.x || clamped.y !== current.y) {
+            next[id] = clamped
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const handleMouseDown = useCallback((e: React.MouseEvent, iconId: string) => {
     // Only left-click starts a drag
@@ -89,36 +139,26 @@ export function DesktopIcons() {
       // Only start visual drag after 5px threshold
       if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
         setDragging(iconId)
-        setPositions((prev) => ({
-          ...prev,
-          [iconId]: {
-            x: dragStart.current!.iconX + dx,
-            y: dragStart.current!.iconY + dy,
-          },
-        }))
+        // Snap to grid live while dragging so the user sees the target cell
+        const snapped = clampPosition(snapToGrid(
+          dragStart.current.iconX + dx,
+          dragStart.current.iconY + dy,
+        ))
+        setPositions((prev) => ({ ...prev, [iconId]: snapped }))
       }
     }
 
-    const handleMouseUp = (me: MouseEvent) => {
+    const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
-      if (dragging === iconId || (dragStart.current && (Math.abs(me.clientX - dragStart.current.x) > 5 || Math.abs(me.clientY - dragStart.current.y) > 5))) {
-        // Snap to grid
-        const pos = positions[iconId]
-        if (pos) {
-          setPositions((prev) => ({
-            ...prev,
-            [iconId]: snapToGrid(pos.x, pos.y),
-          }))
-        }
-      }
+      // Position is already snapped & clamped from the last mousemove; nothing extra needed.
       setDragging(null)
       dragStart.current = null
     }
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-  }, [positions, dragging])
+  }, [positions])
 
   const handleDesktopClick = useCallback(() => {
     setSelected(null)

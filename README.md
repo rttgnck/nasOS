@@ -180,7 +180,7 @@ This starts the FastAPI backend on port **8080** and the Vite dev server on port
 | | |
 |---|---|
 | **Username** | `admin` |
-| **Password** | `admin123` |
+| **Password** | `nasos` |
 
 > On non-Linux systems the backend automatically returns mock data — every feature is fully usable for UI development without a Pi.
 
@@ -276,7 +276,7 @@ You can sign in with either of the following accounts:
 
 | Account | Username | Password | Notes |
 |---------|----------|----------|-------|
-| **nasOS admin** | `admin` | `admin123` | Default nasOS management account |
+| **nasOS admin** | `admin` | `nasos` | Default nasOS management account |
 | **Pi Imager user** | *(your chosen username)* | *(your chosen password)* | Set in Raspberry Pi Imager before flashing |
 
 > **Using the Pi Imager user for file shares?** You must set a Samba password for that account before SMB/NFS shares will work. Go to **Settings → Users**, select the user, and set a share password.

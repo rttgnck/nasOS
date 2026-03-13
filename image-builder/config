@@ -17,9 +17,15 @@ TIMEZONE_DEFAULT="UTC"
 STAGE_LIST="stage0 stage1 stage2 stage-nasos"
 
 # Output format
-DEPLOY_ZIP="1"         # Compress output with xz
-USE_QEMU="0"           # Use native QEMU acceleration where possible
+DEPLOY_COMPRESSION="zip"  # Wrap the image in a .zip archive (DEPLOY_ZIP is deprecated)
+USE_QEMU="0"              # Use native QEMU acceleration where possible
 
-# Image size — 4 GB minimum for the OS; user data lives on attached storage
+# Image size
+# Root needs room for: Pi OS Lite (~1.8 GB) + Node.js/Docker/cage packages (~0.8 GB) +
+# /opt/nasos install (venv 200 MB + electron 200 MB + backend/frontend ~80 MB) +
+# OTA working set (extract ~50 MB + rollback ~50 MB + pip temp ~100 MB) +
+# journald cap (200 MB) + Docker daemon state (~200 MB on root even with data-root
+# moved to the data partition).  6 GB gives ~2 GB of sustained headroom.
+# User NAS data lives on partition 3 (all remaining SD-card space) via setup-data-partition.sh.
 BOOT_SIZE="256"        # Boot partition in MB
-ROOT_SIZE="3072"       # Root in MB (3 GB)
+ROOT_SIZE="6144"       # Root in MB (6 GB)

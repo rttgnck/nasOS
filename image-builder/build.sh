@@ -7,10 +7,11 @@
 #   - internet connection (pi-gen downloads ARM packages during first build)
 #
 # Usage:
-#   ./image-builder/build.sh [--skip-frontend] [--clean]
+#   ./image-builder/build.sh [--skip-frontend] [--clean] [--resize]
 #
 #   --skip-frontend  Skip npm run build (use if already built)
 #   --clean          Remove the pi-gen cache and start a clean build
+#   --resize         Skip the full build — just resize an existing image in deploy/
 
 set -euo pipefail
 
@@ -20,12 +21,14 @@ PIGEN_DIR="$SCRIPT_DIR/.pi-gen"
 DEPLOY_DIR="$SCRIPT_DIR/deploy"
 SKIP_FRONTEND=false
 CLEAN_BUILD=false
+RESIZE_ONLY=false
 
 # --- Parse args ---
 for arg in "$@"; do
   case "$arg" in
     --skip-frontend) SKIP_FRONTEND=true ;;
     --clean)         CLEAN_BUILD=true ;;
+    --resize)        RESIZE_ONLY=true ;;
     *) echo "Unknown option: $arg"; exit 1 ;;
   esac
 done
@@ -44,6 +47,27 @@ echo "║  Raspberry Pi 5 · Bookworm · 64-bit  ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
+if [ "$RESIZE_ONLY" = true ]; then
+  info "Resize-only mode — skipping build, will resize existing image in deploy/"
+
+  # Validate that there's something to resize
+  if ! ls "$DEPLOY_DIR"/*.zip &>/dev/null; then
+    error "No .zip found in $DEPLOY_DIR/ — nothing to resize."
+    error "Run a full build first, or place a pi-gen output zip in $DEPLOY_DIR/"
+    exit 1
+  fi
+
+  # Docker is still needed for the resize container
+  if ! command -v docker &>/dev/null; then
+    error "Docker not found. Install Docker Desktop from https://www.docker.com/products/docker-desktop"
+    exit 1
+  fi
+  if ! docker info &>/dev/null; then
+    error "Docker is not running. Start Docker Desktop and try again."
+    exit 1
+  fi
+
+else
 # ─────────────────────────────────────────
 # STEP 1: Preflight checks
 # ─────────────────────────────────────────
@@ -379,11 +403,13 @@ info "Configuring pi-gen..."
 
 # Copy our config file to pi-gen root (pi-gen sources this)
 cp "$SCRIPT_DIR/config" "$PIGEN_DIR/config"
-
-# Tell pi-gen to write its output image directly to image-builder/deploy/
-# (otherwise it defaults to .pi-gen/deploy which is buried inside the build dir)
+# NOTE: Do NOT append DEPLOY_DIR to the config here.
+# build-docker.sh uses: docker cp <container>:/pi-gen/deploy - | tar -xf -
+# That only captures the container-internal /pi-gen/deploy path.
+# Overriding DEPLOY_DIR to a host path causes the zip to be written inside the
+# container at a path docker cp never sees — it vanishes when the container is removed.
+# Step 7 copies .pi-gen/deploy/ -> image-builder/deploy/ after the build.
 mkdir -p "$DEPLOY_DIR"
-echo "DEPLOY_DIR=\"$DEPLOY_DIR\"" >> "$PIGEN_DIR/config"
 
 # Skip the stages we don't need (stage3 = desktop environment, stage4/5 = full desktop)
 # We stop at stage2 (RPi OS Lite) then add our own stage-nasos
@@ -411,6 +437,14 @@ cp -r "$SCRIPT_DIR/stage-nasos" "$PIGEN_STAGE"
 
 # Make all shell scripts executable
 find "$PIGEN_STAGE" -name "*.sh" -exec chmod +x {} \;
+
+# Run the host-side staging script for stage 02
+# This syncs the canonical system/ files (service units, udev rules, configs)
+# into stage-nasos/02-configure-services/files/ so Docker always uses the
+# current repo versions — not potentially stale bundled copies.
+info "Syncing system/ files for stage-nasos/02-configure-services..."
+PROJECT_ROOT="$PROJECT_ROOT" bash "$PIGEN_STAGE/02-configure-services/00-run.sh"
+success "Config files synced."
 
 # Run the host-side staging script for stage 03
 # This copies the built app files into stage-nasos/03-install-nasos/files/
@@ -443,14 +477,56 @@ fi
 echo ""
 info "Collecting output image..."
 
-# pi-gen writes directly to $DEPLOY_DIR (set in config above)
-PIGEN_OUTPUT=$(ls "$DEPLOY_DIR/"*.img.xz 2>/dev/null | tail -1)
+# build-docker.sh extracts the container's /pi-gen/deploy into ./deploy/
+# relative to PIGEN_DIR (i.e. .pi-gen/deploy/). Copy everything from there
+# into image-builder/deploy/ so the final zip is in the expected place.
+if [ -d "$PIGEN_DIR/deploy" ]; then
+  info "Moving img zip from .pi-gen/deploy/ → $DEPLOY_DIR/"
+#   cp -r "$PIGEN_DIR/deploy/"* "$DEPLOY_DIR/" 2>/dev/null || true
+  mv "$PIGEN_DIR/deploy/"*.zip* "$DEPLOY_DIR/" 2>/dev/null || true
+fi
+
+fi  # ← end of: if [ "$RESIZE_ONLY" != true ]
+
+# ─────────────────────────────────────────
+# STEP 8: Resize root partition to fixed size
+# ─────────────────────────────────────────
+# Pi-gen auto-sizes the root partition to fit the staged rootfs + a margin.
+# We need a fixed 6 GB root to leave headroom for OTA updates, Docker state,
+# journald, etc. (see config comments for the math).
+#
+# This runs the resize inside a disposable Docker container because macOS
+# lacks the Linux tools (losetup, sfdisk, e2fsck, resize2fs).
+# --privileged is required for losetup to create loop devices.
+ROOT_SIZE_MB=6144  # 6 GB — keep in sync with config comments
+
+# Copy the resize script into deploy/ so the container can see it
+cp "$SCRIPT_DIR/resize-image.sh" "$DEPLOY_DIR/resize-image.sh"
+
+info "Resizing root partition to ${ROOT_SIZE_MB} MB (in Docker)..."
+docker run --rm --privileged \
+    -v "$DEPLOY_DIR":/deploy \
+    debian:bookworm \
+    bash /deploy/resize-image.sh "$ROOT_SIZE_MB"
+
+# Clean up the script copy from deploy/
+rm -f "$DEPLOY_DIR/resize-image.sh"
+
+success "Root partition resized to ${ROOT_SIZE_MB} MB."
+
+# ─────────────────────────────────────────
+# STEP 9: Final output
+# ─────────────────────────────────────────
+PIGEN_OUTPUT=$(ls "$DEPLOY_DIR/"*.zip 2>/dev/null | tail -1)
+if [ -z "$PIGEN_OUTPUT" ]; then
+  PIGEN_OUTPUT=$(ls "$DEPLOY_DIR/"*.img.xz 2>/dev/null | tail -1)
+fi
 if [ -z "$PIGEN_OUTPUT" ]; then
   PIGEN_OUTPUT=$(ls "$DEPLOY_DIR/"*.img 2>/dev/null | tail -1)
 fi
 
 if [ -z "$PIGEN_OUTPUT" ]; then
-  error "Build failed — no .img or .img.xz found in $DEPLOY_DIR/"
+  error "Build failed — no .zip, .img.xz, or .img found in $DEPLOY_DIR/"
   error "Check pi-gen logs above for errors."
   exit 1
 fi
@@ -472,7 +548,10 @@ echo ""
 echo "  2. Unmount it (replace diskN):"
 echo "     diskutil unmountDisk /dev/diskN"
 echo ""
-if [[ "$OUTPUT_FILE" == *.xz ]]; then
+if [[ "$OUTPUT_FILE" == *.zip ]]; then
+echo "  3. Flash (unzip and pipe to dd):"
+echo "     unzip -p $OUTPUT_FILE | sudo dd of=/dev/rdiskN bs=4m status=progress"
+elif [[ "$OUTPUT_FILE" == *.xz ]]; then
 echo "  3. Flash (decompress on the fly):"
 echo "     xzcat $OUTPUT_FILE | sudo dd of=/dev/rdiskN bs=4m status=progress"
 else
