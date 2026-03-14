@@ -27,6 +27,9 @@ apt-get update -y
 apt-get install -y --no-install-recommends \
   docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+echo ">>> [01-install-packages] Installing FFmpeg for media transcoding..."
+apt-get install -y --no-install-recommends ffmpeg
+
 echo ">>> [01-install-packages] Cleaning up..."
 apt-get clean
 rm -rf /var/lib/apt/lists/*

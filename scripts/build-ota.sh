@@ -12,6 +12,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION="0.1.0"
+
+# Version flag --version or -v
+if [[ "$#" -gt 1 && ("$1" == "--version" || "$1" == "-v") ]]; then
+  VERSION="$2"
+  shift
+fi
 
 # ── Parse args ──────────────────────────────────────────────────
 VERSION="${1:-}"
@@ -19,9 +26,13 @@ INCLUDE_ELECTRON=true
 for arg in "$@"; do
   [[ "$arg" == "--no-electron" ]] && INCLUDE_ELECTRON=false
 done
-# If first arg is a flag not a version, fall back to date
+# If first arg is a flag not a version, fall back to date, otherwise use the version flag
 if [[ -z "$VERSION" || "$VERSION" == --* ]]; then
-  VERSION="$(date +%m%d%Y-%H%M%S)"
+  if [[ "$VERSION" == "--version" || "$VERSION" == "-v" ]]; then
+    VERSION="$VERSION"
+  else
+    VERSION="$(date +%m%d%y-%H%M%S)"
+  fi
 fi
 
 DIST_DIR="$PROJECT_ROOT/dist"
@@ -126,6 +137,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
   "version": "$VERSION",
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "components": $COMPONENTS,
+  "packages": ["ffmpeg"],
   "min_required_version": "0.1.0",
   "requires_restart": true,
   "restart_services": ["nasos-backend"]$(if [[ "$INCLUDE_ELECTRON" == true ]]; then echo ',

@@ -75,19 +75,25 @@ async def _broadcast(op_id: str, username: str, payload: dict):
 
 # ── Public API ───────────────────────────────────────────────────────
 
+def _resolve_path(rel: str) -> Path:
+    """Resolve a frontend relative path to a filesystem path, share-aware."""
+    from app.api.files import _safe_path
+    return _safe_path(rel)
+
+
 async def start_operation(
     user: str,
     op_type: Literal["copy", "move", "delete"],
     sources: list[str],
     destination: str,
-    browse_root: Path,
     conflict_policy: str = "ask",
 ) -> str:
     """Create a DB record, compute totals, then launch the background task."""
     op_id = f"fop-{uuid.uuid4().hex[:12]}"
 
+    resolved_sources = [_resolve_path(s) for s in sources]
     total_files, total_bytes = await asyncio.to_thread(
-        _scan_totals, browse_root, sources
+        _scan_totals_resolved, resolved_sources
     )
 
     async with async_session() as db:
@@ -105,7 +111,7 @@ async def start_operation(
         await db.commit()
 
     task = asyncio.create_task(
-        _run_operation(op_id, user, op_type, sources, destination, browse_root, conflict_policy)
+        _run_operation(op_id, user, op_type, sources, destination, conflict_policy)
     )
     _running[op_id] = task
     task.add_done_callback(lambda _t: _running.pop(op_id, None))
@@ -164,11 +170,10 @@ async def dismiss_operation(op_id: str):
 
 # ── Internal helpers ─────────────────────────────────────────────────
 
-def _scan_totals(browse_root: Path, sources: list[str]) -> tuple[int, int]:
+def _scan_totals_resolved(resolved_sources: list[Path]) -> tuple[int, int]:
     total_files = 0
     total_bytes = 0
-    for src_rel in sources:
-        src = (browse_root / src_rel).resolve()
+    for src in resolved_sources:
         if src.is_file():
             total_files += 1
             total_bytes += src.stat().st_size
@@ -227,18 +232,17 @@ async def _run_operation(
     op_type: str,
     sources: list[str],
     destination: str,
-    browse_root: Path,
     conflict_policy: str,
 ):
     completed_files = 0
     completed_bytes = 0
     speed_window: list[tuple[float, int]] = []
 
-    dst_base = (browse_root / destination).resolve()
+    dst_base = _resolve_path(destination)
 
     try:
         for src_rel in sources:
-            src = (browse_root / src_rel).resolve()
+            src = _resolve_path(src_rel)
             if not src.exists():
                 continue
 

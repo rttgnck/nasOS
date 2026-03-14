@@ -14,6 +14,7 @@ from app.core.security import get_current_user
 from app.ws.metrics import metrics_ws
 from app.ws.file_ops import file_ops_ws
 from app.ws.theme_sync import theme_sync_ws
+from app.ws.terminal import terminal_ws
 
 
 @asynccontextmanager
@@ -72,6 +73,7 @@ app.include_router(preferences.router, dependencies=_auth)
 app.websocket("/ws/metrics")(metrics_ws)
 app.websocket("/ws/file-ops")(file_ops_ws)
 app.websocket("/ws/theme-sync")(theme_sync_ws)
+app.websocket("/ws/terminal")(terminal_ws)
 
 # Serve frontend static files in production
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"

@@ -101,7 +101,15 @@ export function FileManager({ windowId }: FileManagerProps) {
       setParentPath(data.parent)
       setCurrentPath(path)
       if (windowId) {
-        const folder = path ? path.split('/').pop() : 'Home'
+        let folder = 'Home'
+        if (path) {
+          if (path.startsWith('@shares/')) {
+            const parts = path.slice('@shares/'.length).split('/').filter(Boolean)
+            folder = parts[parts.length - 1] ?? parts[0] ?? 'Share'
+          } else {
+            folder = path.split('/').pop() ?? 'Home'
+          }
+        }
         updateWindowTitle(windowId, { title: `File Manager — ${folder}` })
       }
     } catch (e) {
@@ -392,7 +400,7 @@ export function FileManager({ windowId }: FileManagerProps) {
   })
 
   const displayEntries = searchResults ?? entries
-  const breadcrumbs = ['Home', ...currentPath.split('/').filter(Boolean)]
+  const breadcrumbs = buildBreadcrumbs(currentPath)
   const previewEntry = selectedItems.size === 1
     ? entries.find((e) => selectedItems.has(e.name) && !e.is_dir) ?? null
     : null
@@ -423,11 +431,8 @@ export function FileManager({ windowId }: FileManagerProps) {
             <span key={i}>
               {i > 0 && <span className="fm-breadcrumb-sep">/</span>}
               <button className="fm-breadcrumb"
-                onClick={() => {
-                  const path = breadcrumbs.slice(1, i + 1).join('/')
-                  loadDirectory(i === 0 ? '' : path)
-                }}>
-                {crumb}
+                onClick={() => loadDirectory(crumb.path)}>
+                {crumb.label}
               </button>
             </span>
           ))}
@@ -756,6 +761,43 @@ function getFileTypeName(name: string): string {
     sh: 'Shell', bash: 'Shell', css: 'CSS', html: 'HTML',
   }
   return typeMap[ext] ?? (ext ? ext.toUpperCase() : 'File')
+}
+
+interface BreadcrumbItem {
+  label: string
+  path: string
+}
+
+function buildBreadcrumbs(currentPath: string): BreadcrumbItem[] {
+  if (!currentPath || currentPath === '/') {
+    return [{ label: 'Home', path: '' }]
+  }
+
+  if (currentPath.startsWith('@shares/')) {
+    const rest = currentPath.slice('@shares/'.length)
+    const parts = rest.split('/').filter(Boolean)
+    const shareName = parts[0] ?? 'Share'
+    const crumbs: BreadcrumbItem[] = [
+      { label: shareName, path: `@shares/${shareName}` },
+    ]
+    for (let i = 1; i < parts.length; i++) {
+      crumbs.push({
+        label: parts[i] ?? '',
+        path: `@shares/${parts.slice(0, i + 1).join('/')}`,
+      })
+    }
+    return crumbs
+  }
+
+  const parts = currentPath.split('/').filter(Boolean)
+  const crumbs: BreadcrumbItem[] = [{ label: 'Home', path: '' }]
+  for (let i = 0; i < parts.length; i++) {
+    crumbs.push({
+      label: parts[i] ?? '',
+      path: parts.slice(0, i + 1).join('/'),
+    })
+  }
+  return crumbs
 }
 
 function formatSize(bytes: number | null): string {

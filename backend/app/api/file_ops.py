@@ -1,10 +1,8 @@
 """REST endpoints for batch file operations with progress tracking."""
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.api.files import BROWSE_ROOT
+from app.api.files import _safe_path
 from app.core.security import get_current_user
 from app.services.file_ops import (
     start_operation,
@@ -21,23 +19,19 @@ router = APIRouter(prefix="/api/file-ops", tags=["file-ops"])
 class BatchRequest(BaseModel):
     sources: list[str]
     destination: str
-    conflict_policy: str = "ask"  # ask, overwrite_all, skip_all, rename_all
+    conflict_policy: str = "ask"
 
 
 class ConflictResolution(BaseModel):
-    resolution: str  # overwrite, overwrite_all, skip, skip_all, rename, rename_all
+    resolution: str
 
 
 def _validate_paths(sources: list[str], destination: str):
     for src in sources:
-        resolved = (BROWSE_ROOT / src).resolve()
-        if not str(resolved).startswith(str(BROWSE_ROOT.resolve())):
-            raise HTTPException(status_code=403, detail=f"Path traversal denied: {src}")
+        resolved = _safe_path(src)
         if not resolved.exists():
             raise HTTPException(status_code=404, detail=f"Source not found: {src}")
-    dst = (BROWSE_ROOT / destination).resolve()
-    if not str(dst).startswith(str(BROWSE_ROOT.resolve())):
-        raise HTTPException(status_code=403, detail="Destination path traversal denied")
+    dst = _safe_path(destination)
     if not dst.is_dir():
         raise HTTPException(status_code=400, detail="Destination must be a directory")
 
@@ -50,7 +44,6 @@ async def batch_copy(req: BatchRequest, user: dict = Depends(get_current_user)):
         op_type="copy",
         sources=req.sources,
         destination=req.destination,
-        browse_root=BROWSE_ROOT,
         conflict_policy=req.conflict_policy,
     )
     return {"op_id": op_id}
@@ -64,7 +57,6 @@ async def batch_move(req: BatchRequest, user: dict = Depends(get_current_user)):
         op_type="move",
         sources=req.sources,
         destination=req.destination,
-        browse_root=BROWSE_ROOT,
         conflict_policy=req.conflict_policy,
     )
     return {"op_id": op_id}

@@ -111,10 +111,33 @@ VERSION=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['
 COMPONENTS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(' '.join(d['components']))" "$MANIFEST") \
   || fail "Could not read components from manifest"
 RESTART_ELECTRON=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(str(d.get('restart_electron',False)).lower())" "$MANIFEST")
+PACKAGES=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(' '.join(d.get('packages',[])))" "$MANIFEST" 2>/dev/null || echo "")
 
 progress "validating" 10 "Package v$VERSION validated (components: $COMPONENTS)"
 echo "Components: $COMPONENTS"
 echo "Restart electron: $RESTART_ELECTRON"
+echo "Packages: ${PACKAGES:-none}"
+
+# ── Phase 1b: Install system packages ─────────────────────────────
+# If the manifest lists apt packages, install any that are missing.
+# Runs before backup/deploy so that new backend code can depend on them.
+if [[ -n "$PACKAGES" ]]; then
+  MISSING=""
+  for pkg in $PACKAGES; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+      MISSING="$MISSING $pkg"
+    fi
+  done
+  MISSING="${MISSING# }"
+  if [[ -n "$MISSING" ]]; then
+    progress "installing" 12 "Installing system packages: $MISSING..."
+    apt-get update -y -qq 2>&1 | tail -3
+    apt-get install -y --no-install-recommends $MISSING 2>&1 | tail -5
+    echo "  packages: installed $MISSING"
+  else
+    echo "  packages: all already installed ($PACKAGES)"
+  fi
+fi
 
 # ── Phase 2: Backup current install ──────────────────────────────
 progress "backing_up" 15 "Backing up current installation..."

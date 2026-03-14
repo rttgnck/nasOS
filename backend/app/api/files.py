@@ -1,24 +1,138 @@
+import asyncio
+import json
+import logging
+import mimetypes
 import os
 import shutil
 from pathlib import Path
 
 import aiofiles
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+_log = logging.getLogger(__name__)
+
+from app.core.database import get_db
+from app.models.share import Share
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 # Default browsable root — will be configurable
 BROWSE_ROOT = Path(os.environ.get("NASOS_BROWSE_ROOT", Path.home()))
 
+# Share path prefix used by the frontend
+_SHARE_PREFIX = "@shares/"
+
 
 def _safe_path(relative: str) -> Path:
-    """Resolve a relative path and ensure it stays within BROWSE_ROOT."""
-    resolved = (BROWSE_ROOT / relative).resolve()
-    if not str(resolved).startswith(str(BROWSE_ROOT.resolve())):
+    """Resolve a relative path within the appropriate root.
+
+    Paths starting with ``@shares/ShareName/...`` are resolved against that
+    share's filesystem path.  All other paths resolve against BROWSE_ROOT (Home).
+    """
+    root, rel = _resolve_root_and_rel(relative)
+    resolved = (root / rel).resolve()
+    if not str(resolved).startswith(str(root.resolve())):
         raise HTTPException(status_code=403, detail="Path traversal denied")
     return resolved
+
+
+def _resolve_root_and_rel(relative: str) -> tuple[Path, str]:
+    """Return (filesystem_root, relative_path) for a given frontend path."""
+    if relative.startswith(_SHARE_PREFIX):
+        rest = relative[len(_SHARE_PREFIX):]
+        parts = rest.split("/", 1)
+        share_name = parts[0]
+        sub_path = parts[1] if len(parts) > 1 else ""
+        share_root = _get_share_root(share_name)
+        if share_root is None:
+            raise HTTPException(status_code=404, detail=f"Share not found: {share_name}")
+        return share_root, sub_path
+    return BROWSE_ROOT, relative
+
+
+def _make_relative(target: Path, relative_input: str) -> str:
+    """Return a frontend-friendly relative path for a resolved filesystem path.
+
+    Re-attaches the @shares/ prefix when the original request targeted a share.
+    """
+    root, _ = _resolve_root_and_rel(relative_input)
+    try:
+        return str(target.relative_to(root))
+    except ValueError:
+        return str(target.relative_to(BROWSE_ROOT))
+
+
+def _share_prefix_for(relative_input: str) -> str:
+    """Return the @shares/Name/ prefix if the path targets a share, else ''."""
+    if relative_input.startswith(_SHARE_PREFIX):
+        rest = relative_input[len(_SHARE_PREFIX):]
+        share_name = rest.split("/", 1)[0]
+        return f"{_SHARE_PREFIX}{share_name}/"
+    return ""
+
+
+# Cache of share name → filesystem path (refreshed per-request via _get_share_root)
+_share_cache: dict[str, Path] = {}
+
+
+def _get_share_root(share_name: str) -> Path | None:
+    """Synchronously look up a share's root path from the cache.
+
+    The cache is populated by the /roots endpoint and by a startup refresh.
+    Falls back to scanning the DB synchronously if needed (SQLite allows this
+    in a pinch since we use the same file).
+    """
+    if share_name in _share_cache:
+        return _share_cache[share_name]
+    # Fall back to reading the DB synchronously (only for SQLite)
+    import sqlite3
+    from app.core.config import settings
+    try:
+        conn = sqlite3.connect(str(settings.db_path))
+        row = conn.execute(
+            "SELECT path FROM shares WHERE name = ? AND enabled = 1", (share_name,)
+        ).fetchone()
+        conn.close()
+        if row:
+            _share_cache[share_name] = Path(row[0])
+            return _share_cache[share_name]
+    except Exception:
+        pass
+    return None
+
+
+async def _refresh_share_cache(db: AsyncSession):
+    result = await db.execute(select(Share).where(Share.enabled == True))
+    shares = result.scalars().all()
+    _share_cache.clear()
+    for s in shares:
+        _share_cache[s.name] = Path(s.path)
+
+
+# --- Roots (browsable locations) ---
+
+@router.get("/roots")
+async def get_roots(db: AsyncSession = Depends(get_db)):
+    """Return all browsable root locations (Home + enabled shares)."""
+    await _refresh_share_cache(db)
+    roots = [{"id": "home", "name": "Home", "path": "", "icon": "home"}]
+    result = await db.execute(
+        select(Share).where(Share.enabled == True).order_by(Share.name)
+    )
+    for share in result.scalars().all():
+        roots.append({
+            "id": f"share-{share.id}",
+            "name": share.name,
+            "path": f"{_SHARE_PREFIX}{share.name}",
+            "icon": "share",
+            "description": share.description or "",
+            "protocol": share.protocol,
+        })
+    return {"roots": roots}
 
 
 # --- List ---
@@ -31,14 +145,18 @@ async def list_files(path: str = Query("", description="Relative path from brows
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Not a directory")
 
+    root, _ = _resolve_root_and_rel(path)
+    prefix = _share_prefix_for(path)
+
     entries = []
     try:
         for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+            rel_path = prefix + str(entry.relative_to(root))
             try:
                 stat = entry.stat()
                 entries.append({
                     "name": entry.name,
-                    "path": str(entry.relative_to(BROWSE_ROOT)),
+                    "path": rel_path,
                     "is_dir": entry.is_dir(),
                     "size": stat.st_size if entry.is_file() else None,
                     "modified": stat.st_mtime,
@@ -47,7 +165,7 @@ async def list_files(path: str = Query("", description="Relative path from brows
             except PermissionError:
                 entries.append({
                     "name": entry.name,
-                    "path": str(entry.relative_to(BROWSE_ROOT)),
+                    "path": rel_path,
                     "is_dir": entry.is_dir(),
                     "size": None,
                     "modified": None,
@@ -56,9 +174,19 @@ async def list_files(path: str = Query("", description="Relative path from brows
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
+    # Compute parent path
+    if not path or path == prefix.rstrip("/"):
+        parent_path = None
+    elif path.startswith(_SHARE_PREFIX):
+        rest = path[len(prefix):]
+        parent_rel = str(Path(rest).parent)
+        parent_path = prefix + parent_rel if parent_rel != "." else prefix.rstrip("/")
+    else:
+        parent_path = str(Path(path).parent) if path else None
+
     return {
         "path": path or "/",
-        "parent": str(Path(path).parent) if path else None,
+        "parent": parent_path,
         "entries": entries,
     }
 
@@ -72,6 +200,9 @@ async def directory_tree(path: str = Query("", description="Relative path"), dep
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
+    root, _ = _resolve_root_and_rel(path)
+    prefix = _share_prefix_for(path)
+
     def build_tree(dir_path: Path, current_depth: int) -> list:
         if current_depth <= 0:
             return []
@@ -81,7 +212,7 @@ async def directory_tree(path: str = Query("", description="Relative path"), dep
                 if entry.is_dir() and not entry.name.startswith('.'):
                     result.append({
                         "name": entry.name,
-                        "path": str(entry.relative_to(BROWSE_ROOT)),
+                        "path": prefix + str(entry.relative_to(root)),
                         "children": build_tree(entry, current_depth - 1) if current_depth > 1 else [],
                         "has_children": any(e.is_dir() for e in entry.iterdir()) if current_depth == 1 else None,
                     })
@@ -105,6 +236,8 @@ async def search_files(
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
+    root, _ = _resolve_root_and_rel(path)
+    prefix = _share_prefix_for(path)
     results = []
     query_lower = query.lower()
 
@@ -120,7 +253,7 @@ async def search_files(
                         stat = entry.stat()
                         results.append({
                             "name": entry.name,
-                            "path": str(entry.relative_to(BROWSE_ROOT)),
+                            "path": prefix + str(entry.relative_to(root)),
                             "is_dir": entry.is_dir(),
                             "size": stat.st_size if entry.is_file() else None,
                             "modified": stat.st_mtime,
@@ -184,7 +317,9 @@ async def copy_files(req: FileOpRequest):
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    return {"status": "ok", "destination": str(target.relative_to(BROWSE_ROOT))}
+    dst_prefix = _share_prefix_for(req.destination)
+    dst_root, _ = _resolve_root_and_rel(req.destination)
+    return {"status": "ok", "destination": dst_prefix + str(target.relative_to(dst_root))}
 
 
 @router.post("/move")
@@ -202,7 +337,9 @@ async def move_files(req: FileOpRequest):
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    return {"status": "ok", "destination": str(target.relative_to(BROWSE_ROOT))}
+    dst_prefix = _share_prefix_for(req.destination)
+    dst_root, _ = _resolve_root_and_rel(req.destination)
+    return {"status": "ok", "destination": dst_prefix + str(target.relative_to(dst_root))}
 
 
 @router.post("/rename")
@@ -222,7 +359,9 @@ async def rename_file(req: RenameRequest):
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    return {"status": "ok", "new_path": str(target.relative_to(BROWSE_ROOT))}
+    prefix = _share_prefix_for(req.path)
+    root, _ = _resolve_root_and_rel(req.path)
+    return {"status": "ok", "new_path": prefix + str(target.relative_to(root))}
 
 
 @router.post("/mkdir")
@@ -242,7 +381,9 @@ async def make_directory(req: MkdirRequest):
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    return {"status": "ok", "path": str(target.relative_to(BROWSE_ROOT))}
+    prefix = _share_prefix_for(req.path)
+    root, _ = _resolve_root_and_rel(req.path)
+    return {"status": "ok", "path": prefix + str(target.relative_to(root))}
 
 
 @router.post("/delete")
@@ -289,11 +430,13 @@ async def upload_file(
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
 
+    prefix = _share_prefix_for(path)
+    root, _ = _resolve_root_and_rel(path)
     stat = target.stat()
     return {
         "status": "ok",
         "name": filename,
-        "path": str(target.relative_to(BROWSE_ROOT)),
+        "path": prefix + str(target.relative_to(root)),
         "size": stat.st_size,
     }
 
@@ -310,6 +453,152 @@ async def download_file(path: str = Query(..., description="File to download")):
         path=str(target),
         filename=target.name,
         media_type="application/octet-stream",
+    )
+
+
+# --- Stream (for media playback with range support) ---
+
+@router.get("/stream")
+async def stream_file(
+    request: Request,
+    path: str = Query(..., description="File to stream"),
+):
+    """Serve a file with correct MIME type and HTTP range request support."""
+    target = _safe_path(path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_size = target.stat().st_size
+    content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+
+    range_header = request.headers.get("range")
+    if range_header:
+        range_spec = range_header.strip().lower().replace("bytes=", "")
+        parts = range_spec.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+        end = min(end, file_size - 1)
+        length = end - start + 1
+
+        async def ranged_chunks():
+            async with aiofiles.open(str(target), "rb") as f:
+                await f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk_size = min(65536, remaining)
+                    data = await f.read(chunk_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        return StreamingResponse(
+            ranged_chunks(),
+            status_code=206,
+            media_type=content_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+            },
+        )
+
+    return FileResponse(
+        path=str(target),
+        media_type=content_type,
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+# --- Transcode (for non-browser-native video formats) ---
+
+async def _ffprobe_codecs(file_path: str) -> tuple[str, str]:
+    """Return (video_codec, audio_codec) for a file using ffprobe."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        data = json.loads(stdout)
+        v_codec = ""
+        a_codec = ""
+        for s in data.get("streams", []):
+            if s.get("codec_type") == "video" and not v_codec:
+                v_codec = s.get("codec_name", "")
+            elif s.get("codec_type") == "audio" and not a_codec:
+                a_codec = s.get("codec_name", "")
+        return v_codec, a_codec
+    except Exception as e:
+        _log.warning("ffprobe failed for %s: %s", file_path, e)
+        return "", ""
+
+
+@router.get("/transcode")
+async def transcode_file(
+    path: str = Query(..., description="Video file to transcode"),
+):
+    """Transcode a video file to fragmented MP4 for browser playback.
+
+    Uses ``-c copy`` when the source already uses H.264/AAC (instant remux),
+    otherwise re-encodes with libx264 ultrafast.
+    """
+    target = _safe_path(path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    v_codec, a_codec = await _ffprobe_codecs(str(target))
+
+    # H.264 streams can be remuxed directly into MP4
+    v_args = ["-c:v", "copy"] if v_codec in ("h264", "h265", "hevc") else [
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+    ]
+    # AAC audio can be copied; everything else gets transcoded
+    a_args = ["-c:a", "copy"] if a_codec == "aac" else ["-c:a", "aac", "-b:a", "192k"]
+
+    cmd = [
+        "ffmpeg", "-i", str(target),
+        *v_args, *a_args,
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+        "-f", "mp4",
+        "-loglevel", "error",
+        "pipe:1",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="FFmpeg is not installed on this system",
+        )
+
+    async def _stream():
+        assert proc.stdout is not None
+        try:
+            while True:
+                chunk = await proc.stdout.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+
+    return StreamingResponse(
+        _stream(),
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f'inline; filename="{target.stem}.mp4"',
+            "Cache-Control": "no-cache",
+        },
     )
 
 

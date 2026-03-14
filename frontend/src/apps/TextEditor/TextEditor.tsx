@@ -1,9 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Editor, { type OnMount } from '@monaco-editor/react'
+import Editor, { type OnMount, loader } from '@monaco-editor/react'
 import { Save, RotateCcw } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
-import { useWindowStore } from '../../store/windowStore'
+import { useWindowStore, registerBeforeClose, unregisterBeforeClose } from '../../store/windowStore'
+
+let _themeRegistered = false
+
+function registerNasOSTheme(monaco: typeof import('monaco-editor')) {
+  if (_themeRegistered) return
+  _themeRegistered = true
+  monaco.editor.defineTheme('nasos-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#00000000',
+      'editor.lineHighlightBackground': '#ffffff08',
+      'editorGutter.background': '#00000000',
+      'minimap.background': '#00000020',
+      'editorOverviewRuler.background': '#00000000',
+      'scrollbarSlider.background': '#ffffff15',
+      'scrollbarSlider.hoverBackground': '#ffffff25',
+      'scrollbarSlider.activeBackground': '#ffffff35',
+    },
+  })
+}
+
+loader.init().then(registerNasOSTheme)
 
 interface TextEditorProps {
   filePath: string
@@ -30,7 +54,9 @@ export function TextEditor({ filePath, fileName, windowId }: TextEditorProps) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [showCloseModal, setShowCloseModal] = useState(false)
   const editorRef = useRef<any>(null)
+  const closeResolveRef = useRef<((canClose: boolean) => void) | null>(null)
 
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
   const language = EXT_LANGUAGE[ext] ?? 'plaintext'
@@ -94,6 +120,40 @@ export function TextEditor({ filePath, fileName, windowId }: TextEditorProps) {
     return () => window.removeEventListener('keydown', handler)
   }, [handleSave])
 
+  // Register before-close guard
+  useEffect(() => {
+    if (!windowId) return
+    registerBeforeClose(windowId, () => {
+      const currentDirty = useWindowStore.getState().windows
+        .find((w) => w.id === windowId)?.title.startsWith('● ')
+      if (!currentDirty) return true
+      return new Promise<boolean>((resolve) => {
+        closeResolveRef.current = resolve
+        setShowCloseModal(true)
+      })
+    })
+    return () => { unregisterBeforeClose(windowId) }
+  }, [windowId])
+
+  const handleCloseDiscard = () => {
+    setShowCloseModal(false)
+    closeResolveRef.current?.(true)
+    closeResolveRef.current = null
+  }
+
+  const handleCloseSave = async () => {
+    await handleSave()
+    setShowCloseModal(false)
+    closeResolveRef.current?.(true)
+    closeResolveRef.current = null
+  }
+
+  const handleCloseCancel = () => {
+    setShowCloseModal(false)
+    closeResolveRef.current?.(false)
+    closeResolveRef.current = null
+  }
+
   const handleEditorMount: OnMount = (editor) => {
     editorRef.current = editor
     editor.focus()
@@ -147,7 +207,7 @@ export function TextEditor({ filePath, fileName, windowId }: TextEditorProps) {
           value={content ?? ''}
           onChange={handleChange}
           onMount={handleEditorMount}
-          theme="vs-dark"
+          theme="nasos-dark"
           options={{
             fontSize: 13,
             minimap: { enabled: true },
@@ -158,6 +218,28 @@ export function TextEditor({ filePath, fileName, windowId }: TextEditorProps) {
           }}
         />
       </div>
+
+      {showCloseModal && (
+        <div className="te-close-modal-overlay">
+          <div className="te-close-modal">
+            <div className="te-close-modal-title">Unsaved Changes</div>
+            <p className="te-close-modal-msg">
+              <strong>{fileName}</strong> has unsaved changes. What would you like to do?
+            </p>
+            <div className="te-close-modal-actions">
+              <button className="te-close-modal-btn te-close-modal-btn--discard" onClick={handleCloseDiscard}>
+                Don't Save
+              </button>
+              <button className="te-close-modal-btn te-close-modal-btn--cancel" onClick={handleCloseCancel}>
+                Cancel
+              </button>
+              <button className="te-close-modal-btn te-close-modal-btn--save" onClick={handleCloseSave}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

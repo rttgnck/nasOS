@@ -1,6 +1,6 @@
 import {
   type LucideIcon,
-  FolderOpen, HardDrive, Share2, Users, Box, Globe, Activity, Archive, ScrollText, Settings, Package,
+  FolderOpen, HardDrive, Share2, Users, Box, Globe, Activity, Archive, ScrollText, Settings, TerminalSquare, Package,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 
@@ -14,6 +14,7 @@ const APP_ICONS: Record<string, LucideIcon> = {
   'system-monitor': Activity,
   'backup-manager': Archive,
   'log-viewer': ScrollText,
+  'terminal': TerminalSquare,
   'settings': Settings,
 }
 

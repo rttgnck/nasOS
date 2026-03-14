@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type LucideIcon,
-  FolderOpen, HardDrive, Share2, Box, Activity, Archive, Settings, RefreshCw,
+  FolderOpen, HardDrive, Share2, Box, Activity, Archive, Settings, RefreshCw, TerminalSquare,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 
@@ -25,6 +25,7 @@ const DESKTOP_ICONS: DesktopIcon[] = [
   { id: 'icon-monitor',  appId: 'system-monitor',  label: 'Monitor',      Icon: Activity },
   { id: 'icon-backup',   appId: 'backup-manager',  label: 'Backups',      Icon: Archive },
   { id: 'icon-updates',  appId: 'system-updates',  label: 'Updates',      Icon: RefreshCw },
+  { id: 'icon-terminal', appId: 'terminal',         label: 'Terminal',     Icon: TerminalSquare },
   { id: 'icon-settings', appId: 'settings',        label: 'Settings',     Icon: Settings },
 ]
 

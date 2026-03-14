@@ -19,6 +19,22 @@ export interface WindowState {
   appMeta?: Record<string, any>
 }
 
+type BeforeCloseHandler = () => boolean | Promise<boolean>
+
+const _beforeCloseHandlers = new Map<string, BeforeCloseHandler>()
+
+export function registerBeforeClose(windowId: string, handler: BeforeCloseHandler) {
+  _beforeCloseHandlers.set(windowId, handler)
+}
+
+export function unregisterBeforeClose(windowId: string) {
+  _beforeCloseHandlers.delete(windowId)
+}
+
+export function getBeforeCloseHandler(windowId: string): BeforeCloseHandler | undefined {
+  return _beforeCloseHandlers.get(windowId)
+}
+
 interface WindowStore {
   windows: WindowState[]
   focusedWindowId: string | null
@@ -26,6 +42,7 @@ interface WindowStore {
 
   openWindow: (appId: string, title: string, options?: Partial<WindowState>) => string
   closeWindow: (id: string) => void
+  requestClose: (id: string) => void
   focusWindow: (id: string) => void
   minimizeWindow: (id: string) => void
   restoreWindow: (id: string) => void
@@ -85,6 +102,7 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
   },
 
   closeWindow: (id) => {
+    _beforeCloseHandlers.delete(id)
     // Trigger close animation
     set((state) => ({
       windows: state.windows.map((w) =>
@@ -102,6 +120,22 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
         return { windows: remaining, focusedWindowId: newFocused }
       })
     }, 150)
+  },
+
+  requestClose: (id) => {
+    const handler = _beforeCloseHandlers.get(id)
+    if (handler) {
+      const result = handler()
+      if (result instanceof Promise) {
+        result.then((canClose) => {
+          if (canClose) get().closeWindow(id)
+        })
+      } else {
+        if (result) get().closeWindow(id)
+      }
+    } else {
+      get().closeWindow(id)
+    }
   },
 
   focusWindow: (id) => {

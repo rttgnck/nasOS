@@ -117,10 +117,10 @@ def get_update_status() -> dict[str, Any]:
 
 def get_update_status_mock() -> dict[str, Any]:
     return {
-        "current_version": "0.1.0",
+        "current_version": "031426-0045",
         "staged": None,
         "progress": None,
-        "rollback": {"version": "0.0.9", "backed_up_at": "2026-03-10T12:00:00"},
+        "rollback": {"version": "0.1.0", "backed_up_at": "2026-03-10T12:00:00"},
         "disk_free_mb": 2048,
     }
 

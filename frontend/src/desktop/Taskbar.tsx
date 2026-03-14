@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   type LucideIcon,
   FolderOpen, HardDrive, Share2, Users, Box, Network, Activity, Archive, ScrollText, Settings, RefreshCw,
-  LogOut, RotateCcw, PowerOff,
+  TerminalSquare, LogOut, RotateCcw, PowerOff,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
@@ -21,6 +21,7 @@ const APP_MENU_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'system-monitor',   label: 'Monitor',      Icon: Activity    },
   { id: 'backup-manager',   label: 'Backup',       Icon: Archive     },
   { id: 'log-viewer',       label: 'Logs',         Icon: ScrollText  },
+  { id: 'terminal',          label: 'Terminal',     Icon: TerminalSquare },
   { id: 'system-updates',   label: 'Updates',      Icon: RefreshCw   },
   { id: 'settings',         label: 'Settings',     Icon: Settings    },
 ]

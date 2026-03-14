@@ -22,6 +22,7 @@ import { Settings } from '../apps/Settings/Settings'
 import { SystemMonitor } from '../apps/SystemMonitor/SystemMonitor'
 import { TextEditor } from '../apps/TextEditor/TextEditor'
 import { MediaViewer } from '../apps/MediaViewer/MediaViewer'
+import { Terminal } from '../apps/Terminal/Terminal'
 import { PlaceholderApp } from '../apps/PlaceholderApp'
 import { ToastContainer } from './ToastContainer'
 import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
@@ -50,6 +51,7 @@ export function Desktop() {
         y: e.clientY,
         items: [
           { label: 'Open File Manager', action: () => openWindow('file-manager', 'File Manager') },
+          { label: 'Open Terminal', action: () => openWindow('terminal', 'Terminal') },
           { label: 'Open System Monitor', action: () => openWindow('system-monitor', 'Monitor') },
           { separator: true, label: '' },
           { label: 'Refresh', action: () => window.location.reload() },
@@ -85,6 +87,8 @@ export function Desktop() {
         return <Settings initialTab="updates" />
       case 'system-monitor':
         return <SystemMonitor />
+      case 'terminal':
+        return <Terminal windowId={windowId} />
       case 'text-editor': {
         const meta = (win as any).appMeta
         return meta ? (

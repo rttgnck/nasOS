@@ -10,7 +10,7 @@ interface WindowProps {
 }
 
 export function Window({ window: win, onSnapPreview, children }: WindowProps) {
-  const { focusWindow, closeWindow, minimizeWindow, toggleMaximize, updateWindow, snapWindow } =
+  const { focusWindow, requestClose, minimizeWindow, toggleMaximize, updateWindow, snapWindow } =
     useWindowStore()
 
   const [isDragging, setIsDragging] = useState(false)
@@ -184,7 +184,7 @@ export function Window({ window: win, onSnapPreview, children }: WindowProps) {
           <button className="window-btn window-btn-maximize" onClick={(e) => { e.stopPropagation(); toggleMaximize(win.id) }} title="Maximize">
             <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
           </button>
-          <button className="window-btn window-btn-close" onClick={(e) => { e.stopPropagation(); closeWindow(win.id) }} title="Close">
+          <button className="window-btn window-btn-close" onClick={(e) => { e.stopPropagation(); requestClose(win.id) }} title="Close">
             <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" /></svg>
           </button>
         </div>

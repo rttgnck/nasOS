@@ -176,7 +176,7 @@ def get_thermal_config() -> dict:
 def get_update_status() -> dict:
     if not _is_linux:
         return {
-            "current_version": "0.1.0",
+            "current_version": "031426-0045",
             "latest_version": "0.2.0",
             "update_available": True,
             "channel": "stable",
@@ -199,9 +199,9 @@ def get_update_status() -> dict:
                 ]},
             ],
             "rollback_available": True,
-            "rollback_version": "0.1.0",
+            "rollback_version": "031426-0045",
         }
-    return {"current_version": "0.1.0", "update_available": False}
+    return {"current_version": "031426-0045", "update_available": False}
 
 
 # ── 4. SMART Monitoring Daemon Config ─────────────────────────────

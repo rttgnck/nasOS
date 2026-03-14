@@ -71,7 +71,7 @@ export function LoginScreen() {
         </form>
 
         <div className="login-footer">
-          <span>v0.1.0</span>
+          <span>v031426-0045</span>
           <span className="login-footer-hint">Default login: <strong>admin</strong> / <strong>nasos</strong></span>
         </div>
       </div>

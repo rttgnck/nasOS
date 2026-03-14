@@ -5,7 +5,7 @@ export function useKeyboardShortcuts() {
   const {
     windows,
     focusedWindowId,
-    closeWindow,
+    requestClose,
     focusWindow,
     minimizeWindow,
   } = useWindowStore()
@@ -35,7 +35,7 @@ export function useKeyboardShortcuts() {
       if (e.altKey && e.key === 'F4') {
         e.preventDefault()
         if (focusedWindowId) {
-          closeWindow(focusedWindowId)
+          requestClose(focusedWindowId)
         }
       }
 
@@ -59,7 +59,7 @@ export function useKeyboardShortcuts() {
         }
       }
     },
-    [windows, focusedWindowId, showAltTab, closeWindow, minimizeWindow, focusWindow]
+    [windows, focusedWindowId, showAltTab, requestClose, minimizeWindow, focusWindow]
   )
 
   const handleKeyUp = useCallback(

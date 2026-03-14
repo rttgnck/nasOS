@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Folder, Home } from 'lucide-react'
+import { Folder, Home, HardDrive, ChevronRight, ChevronDown } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 
 interface TreeNode {
@@ -9,14 +9,31 @@ interface TreeNode {
   has_children: boolean | null
 }
 
+interface BrowseRoot {
+  id: string
+  name: string
+  path: string
+  icon: string
+  description?: string
+  protocol?: string
+}
+
 interface FileTreeProps {
   currentPath: string
   onNavigate: (path: string) => void
 }
 
 export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
-  const [tree, setTree] = useState<TreeNode[]>([])
+  const [roots, setRoots] = useState<BrowseRoot[]>([])
+  const [treesMap, setTreesMap] = useState<Record<string, TreeNode[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']))
+
+  // Load browsable roots
+  useEffect(() => {
+    api<{ roots: BrowseRoot[] }>('/api/files/roots')
+      .then((data) => setRoots(data.roots))
+      .catch(() => setRoots([{ id: 'home', name: 'Home', path: '', icon: 'home' }]))
+  }, [])
 
   const loadTree = useCallback(async (path: string) => {
     try {
@@ -29,50 +46,77 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     }
   }, [])
 
+  // Load initial tree for each root when roots arrive
   useEffect(() => {
-    loadTree('').then(setTree)
-  }, [loadTree])
+    if (roots.length === 0) return
+    const loadAll = async () => {
+      const newMap: Record<string, TreeNode[]> = {}
+      for (const root of roots) {
+        try {
+          const children = await loadTree(root.path)
+          newMap[root.id] = children
+        } catch {
+          newMap[root.id] = []
+        }
+      }
+      setTreesMap(newMap)
+    }
+    loadAll()
+  }, [roots, loadTree])
 
-  // Auto-expand tree to match currentPath when navigating in the file viewer
+  // Auto-expand ancestors when currentPath changes
   useEffect(() => {
     if (!currentPath) return
-    const segments = currentPath.split('/').filter(Boolean)
+
+    const matchingRoot = roots.find((r) => r.path && currentPath.startsWith(r.path))
+    const rootId = matchingRoot?.id ?? 'home'
+    const rootPath = matchingRoot?.path ?? ''
+
+    const relPath = rootPath ? currentPath.slice(rootPath.length).replace(/^\//, '') : currentPath
+    if (!relPath) return
+
+    const segments = relPath.split('/').filter(Boolean)
     const ancestors: string[] = []
     for (let i = 0; i < segments.length; i++) {
-      ancestors.push(segments.slice(0, i + 1).join('/'))
+      const ancestorRel = segments.slice(0, i + 1).join('/')
+      ancestors.push(rootPath ? `${rootPath}/${ancestorRel}` : ancestorRel)
     }
 
     const expandAncestors = async () => {
       const next = new Set(expanded)
-      let currentTree = tree
+      next.add(rootId)
+      const currentTree = treesMap[rootId] ?? []
+
       for (const ancestor of ancestors) {
         next.add(ancestor)
-        // Find node in tree and load children if needed
         const node = findNode(currentTree, ancestor)
         if (node && node.children.length === 0 && node.has_children !== false) {
           const children = await loadTree(node.path)
-          updateChildren(tree, node.path, children)
+          updateChildren(currentTree, node.path, children)
           node.children = children
         }
       }
-      setTree([...tree])
+      setTreesMap((prev) => ({ ...prev, [rootId]: [...currentTree] }))
       setExpanded(next)
     }
     expandAncestors()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPath])
+  }, [currentPath, roots])
 
-  const toggleExpand = async (node: TreeNode) => {
+  const toggleExpand = async (nodeOrRootId: string, node?: TreeNode) => {
     const next = new Set(expanded)
-    if (next.has(node.path)) {
-      next.delete(node.path)
+    const key = node ? node.path : nodeOrRootId
+
+    if (next.has(key)) {
+      next.delete(key)
     } else {
-      next.add(node.path)
-      // Load children if not already loaded
-      if (node.children.length === 0 && node.has_children !== false) {
+      next.add(key)
+      if (node && node.children.length === 0 && node.has_children !== false) {
         const children = await loadTree(node.path)
-        updateChildren(tree, node.path, children)
-        setTree([...tree])
+        const rootId = roots.find((r) => r.path && node.path.startsWith(r.path))?.id ?? 'home'
+        const currentTree = treesMap[rootId] ?? []
+        updateChildren(currentTree, node.path, children)
+        setTreesMap((prev) => ({ ...prev, [rootId]: [...currentTree] }))
       }
     }
     setExpanded(next)
@@ -87,18 +131,15 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
       <div key={node.path}>
         <div
           className="fm-tree-item"
-          style={{ paddingLeft: `${8 + depth * 16}px` }}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
           data-active={isActive}
           onClick={() => onNavigate(node.path)}
         >
           <span
             className="fm-tree-toggle"
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleExpand(node)
-            }}
+            onClick={(e) => { e.stopPropagation(); toggleExpand(node.path, node) }}
           >
-            {hasKids ? (isExpanded ? '▾' : '▸') : ' '}
+            {hasKids ? (isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />) : <span style={{ width: 12 }} />}
           </span>
           <span className="fm-tree-icon"><Folder size={14} /></span>
           <span className="fm-tree-name">{node.name}</span>
@@ -108,18 +149,46 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     )
   }
 
+  const renderRoot = (root: BrowseRoot) => {
+    const isActive = root.path === '' ? currentPath === '' : currentPath === root.path
+    const isExpanded = expanded.has(root.id)
+    const tree = treesMap[root.id] ?? []
+    const hasChildren = tree.length > 0
+
+    const RootIcon = root.icon === 'home' ? Home : HardDrive
+
+    return (
+      <div key={root.id} className="fm-tree-root-group">
+        <div
+          className="fm-tree-item fm-tree-root-item"
+          data-active={isActive}
+          onClick={() => onNavigate(root.path)}
+        >
+          <span
+            className="fm-tree-toggle"
+            onClick={(e) => {
+              e.stopPropagation()
+              const next = new Set(expanded)
+              if (next.has(root.id)) next.delete(root.id)
+              else next.add(root.id)
+              setExpanded(next)
+            }}
+          >
+            {hasChildren
+              ? (isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)
+              : <span style={{ width: 12 }} />}
+          </span>
+          <span className="fm-tree-icon"><RootIcon size={14} /></span>
+          <span className="fm-tree-name">{root.name}</span>
+        </div>
+        {isExpanded && tree.map((node) => renderNode(node, 1))}
+      </div>
+    )
+  }
+
   return (
     <div className="fm-tree">
-      <div
-        className="fm-tree-item"
-        data-active={currentPath === ''}
-        onClick={() => onNavigate('')}
-      >
-        <span className="fm-tree-toggle"> </span>
-        <span className="fm-tree-icon"><Home size={14} /></span>
-        <span className="fm-tree-name">Home</span>
-      </div>
-      {tree.map((node) => renderNode(node))}
+      {roots.map(renderRoot)}
     </div>
   )
 }

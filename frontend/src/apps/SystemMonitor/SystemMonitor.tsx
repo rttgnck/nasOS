@@ -112,7 +112,7 @@ export function SystemMonitor() {
           <div className="sm-sysinfo">
             <div className="sm-sysinfo-item">
               <span className="sm-sysinfo-label">Platform</span>
-              <span className="sm-sysinfo-value">nasOS v0.1.0</span>
+              <span className="sm-sysinfo-value">nasOS v031426-0045</span>
             </div>
             <div className="sm-sysinfo-item">
               <span className="sm-sysinfo-label">Kernel</span>
