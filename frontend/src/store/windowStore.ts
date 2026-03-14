@@ -13,10 +13,10 @@ export interface WindowState {
   isMaximized: boolean
   isMinimized: boolean
   zIndex: number
-  // Pre-snap geometry (restored when unsnapped)
   preSnapGeometry: { x: number; y: number; width: number; height: number } | null
-  // Animation state
   animState: 'idle' | 'opening' | 'closing' | 'minimizing' | 'restoring'
+  /** Arbitrary metadata passed to the app (e.g. file path for editors) */
+  appMeta?: Record<string, any>
 }
 
 interface WindowStore {

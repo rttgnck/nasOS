@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSystemStore } from '../store/systemStore'
+import { FileOpsWidget } from './FileOpsWidget'
 
 export function DesktopWidgets() {
   const { metrics, isConnected } = useSystemStore()
@@ -81,6 +82,9 @@ export function DesktopWidgets() {
           <span>{isConnected ? 'Online' : 'Offline'}</span>
         </div>
       </div>
+
+      {/* File Operations Widget */}
+      <FileOpsWidget />
     </div>
   )
 }

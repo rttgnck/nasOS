@@ -7,6 +7,7 @@ interface FileContextMenuProps {
   entry: FileEntry | null
   hasSelection: boolean
   hasClipboard: boolean
+  isEditable?: boolean
   onClose: () => void
   onOpen: () => void
   onCopy: () => void
@@ -16,35 +17,21 @@ interface FileContextMenuProps {
   onRename: () => void
   onNewFolder: () => void
   onDownload: () => void
+  onEdit?: () => void
 }
 
 export function FileContextMenu({
-  x,
-  y,
-  entry,
-  hasSelection,
-  hasClipboard,
-  onClose,
-  onOpen,
-  onCopy,
-  onCut,
-  onPaste,
-  onDelete,
-  onRename,
-  onNewFolder,
-  onDownload,
+  x, y, entry, hasSelection, hasClipboard, isEditable,
+  onClose, onOpen, onCopy, onCut, onPaste, onDelete,
+  onRename, onNewFolder, onDownload, onEdit,
 }: FileContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose()
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
     }
-    const keyHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
+    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('mousedown', handler)
     document.addEventListener('keydown', keyHandler)
     return () => {
@@ -53,20 +40,16 @@ export function FileContextMenu({
     }
   }, [onClose])
 
-  // Clamp position to viewport
   const style: React.CSSProperties = {
     position: 'fixed',
     left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - 300),
+    top: Math.min(y, window.innerHeight - 350),
     zIndex: 9999999,
   }
 
   const item = (label: string, action: () => void, disabled = false, shortcut?: string) => (
-    <button
-      className="context-menu-item"
-      disabled={disabled}
-      onClick={() => { action(); onClose() }}
-    >
+    <button className="context-menu-item" disabled={disabled}
+      onClick={() => { action(); onClose() }}>
       <span>{label}</span>
       {shortcut && <span className="fm-ctx-shortcut">{shortcut}</span>}
     </button>
@@ -78,10 +61,8 @@ export function FileContextMenu({
     <div ref={menuRef} className="context-menu fm-context-menu" style={style}>
       {entry ? (
         <>
-          {entry.is_dir
-            ? item('Open', onOpen)
-            : item('Open', onOpen, true)
-          }
+          {item('Open', onOpen)}
+          {isEditable && onEdit && item('Edit in Editor', onEdit)}
           {!entry.is_dir && item('Download', onDownload)}
           {separator}
           {item('Copy', onCopy, !hasSelection, '⌘C')}

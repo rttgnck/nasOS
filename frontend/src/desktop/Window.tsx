@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react'
 import { useWindowStore, type WindowState } from '../store/windowStore'
+import { useFileOperationsStore, selectActiveOps } from '../store/fileOperationsStore'
 import { getSnapZone, getSnapGeometry, type SnapZone } from './WindowSnapping'
 
 interface WindowProps {
@@ -120,6 +121,12 @@ export function Window({ window: win, onSnapPreview, children }: WindowProps) {
   )
 
   const isFocused = useWindowStore((s) => s.focusedWindowId === win.id)
+  const { operations, setShowModal } = useFileOperationsStore()
+  const activeOps = selectActiveOps({ operations })
+  const isFileManager = win.appId === 'file-manager'
+  const overallProgress = activeOps.length > 0
+    ? activeOps.reduce((sum, o) => sum + (o.total_bytes > 0 ? o.completed_bytes / o.total_bytes : 0), 0) / activeOps.length * 100
+    : 0
 
   if (win.isMinimized) return null
 
@@ -155,7 +162,21 @@ export function Window({ window: win, onSnapPreview, children }: WindowProps) {
     >
       {/* Title bar */}
       <div className="window-titlebar" onMouseDown={handleTitleBarMouseDown} onDoubleClick={() => toggleMaximize(win.id)}>
-        <span className="window-title">{win.title}</span>
+        <span className="window-title">
+          {win.title}
+          {isFileManager && activeOps.length > 0 && (
+            <span className="window-title-progress"
+              onClick={(e) => { e.stopPropagation(); setShowModal(true) }}>
+              {` — ${overallProgress.toFixed(0)}%`}
+            </span>
+          )}
+        </span>
+        {isFileManager && activeOps.length > 0 && (
+          <div className="window-titlebar-progress"
+            onClick={(e) => { e.stopPropagation(); setShowModal(true) }}>
+            <div className="window-titlebar-progress-fill" style={{ width: `${overallProgress}%` }} />
+          </div>
+        )}
         <div className="window-controls">
           <button className="window-btn window-btn-minimize" onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id) }} title="Minimize">
             <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" fill="currentColor" /></svg>

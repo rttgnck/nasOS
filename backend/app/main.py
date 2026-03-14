@@ -5,13 +5,14 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, backup, docker, extras, files, logs, network, security, shares, storage, system, update, users, wifi
+from app.api import auth, backup, docker, extras, file_ops, files, logs, network, security, shares, storage, system, update, users, wifi
 from app.core.config import settings
 from app.core.database import async_session, init_db
 from app.services.share_service import seed_default_shares, ensure_smb_global_settings
 from app.services.user_service import ensure_admin_user
 from app.core.security import get_current_user
 from app.ws.metrics import metrics_ws
+from app.ws.file_ops import file_ops_ws
 
 
 @asynccontextmanager
@@ -63,9 +64,11 @@ app.include_router(security.router, dependencies=_auth)
 app.include_router(extras.router, dependencies=_auth)
 app.include_router(logs.router, dependencies=_auth)
 app.include_router(update.router, dependencies=_auth)
+app.include_router(file_ops.router, dependencies=_auth)
 
 # WebSocket
 app.websocket("/ws/metrics")(metrics_ws)
+app.websocket("/ws/file-ops")(file_ops_ws)
 
 # Serve frontend static files in production
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"

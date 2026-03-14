@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
 import { useMetricsWebSocket } from '../hooks/useWebSocket'
+import { useFileOpsWebSocket } from '../hooks/useFileOpsWebSocket'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { Window } from './Window'
 import { Taskbar } from './Taskbar'
@@ -18,12 +19,16 @@ import { ShareManager } from '../apps/ShareManager/ShareManager'
 import { StorageManager } from '../apps/StorageManager/StorageManager'
 import { Settings } from '../apps/Settings/Settings'
 import { SystemMonitor } from '../apps/SystemMonitor/SystemMonitor'
+import { TextEditor } from '../apps/TextEditor/TextEditor'
+import { MediaViewer } from '../apps/MediaViewer/MediaViewer'
 import { PlaceholderApp } from '../apps/PlaceholderApp'
 import { ToastContainer } from './ToastContainer'
 import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
+import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
 
 export function Desktop() {
   useMetricsWebSocket()
+  useFileOpsWebSocket()
   const { showAltTab, altTabIndex } = useKeyboardShortcuts()
 
   const windows = useWindowStore((s) => s.windows)
@@ -54,14 +59,14 @@ export function Desktop() {
     [openWindow]
   )
 
-  const renderAppContent = (appId: string, title: string) => {
+  const renderAppContent = (appId: string, title: string, windowId: string, win: any) => {
     switch (appId) {
       case 'backup-manager':
         return <BackupManager />
       case 'docker-manager':
         return <DockerManager />
       case 'file-manager':
-        return <FileManager />
+        return <FileManager windowId={windowId} />
       case 'log-viewer':
         return <LogViewer />
       case 'share-manager':
@@ -78,6 +83,22 @@ export function Desktop() {
         return <Settings initialTab="updates" />
       case 'system-monitor':
         return <SystemMonitor />
+      case 'text-editor': {
+        const meta = (win as any).appMeta
+        return meta ? (
+          <TextEditor filePath={meta.filePath} fileName={meta.fileName} windowId={windowId} />
+        ) : (
+          <PlaceholderApp appId={appId} title={title} />
+        )
+      }
+      case 'media-viewer': {
+        const meta = (win as any).appMeta
+        return meta ? (
+          <MediaViewer filePath={meta.filePath} fileName={meta.fileName} fileType={meta.fileType} />
+        ) : (
+          <PlaceholderApp appId={appId} title={title} />
+        )
+      }
       default:
         return <PlaceholderApp appId={appId} title={title} />
     }
@@ -91,25 +112,18 @@ export function Desktop() {
       onContextMenu={handleDesktopContextMenu}
       style={wallpaper ? { backgroundImage: `url(${wallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     >
-      {/* Desktop icons */}
       <DesktopIcons />
-
-      {/* Desktop widgets */}
       <DesktopWidgets />
-      {/* Snap zone preview overlay */}
       <SnapOverlay zone={snapZone} />
 
-      {/* Windows */}
       {windows.map((win) => (
         <Window key={win.id} window={win} onSnapPreview={setSnapZone}>
-          {renderAppContent(win.appId, win.title)}
+          {renderAppContent(win.appId, win.title, win.id, win)}
         </Window>
       ))}
 
-      {/* Alt+Tab Switcher */}
       {showAltTab && <AltTabSwitcher selectedIndex={altTabIndex} />}
 
-      {/* Context Menu */}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
@@ -119,13 +133,9 @@ export function Desktop() {
         />
       )}
 
-      {/* Toast Notifications */}
       <ToastContainer />
-
-      {/* Password change modal (dismissible, shown when using default password) */}
       <ChangePasswordModal />
-
-      {/* Taskbar */}
+      <FileOpsModal />
       <Taskbar />
     </div>
   )

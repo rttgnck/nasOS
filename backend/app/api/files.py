@@ -313,6 +313,29 @@ async def download_file(path: str = Query(..., description="File to download")):
     )
 
 
+# --- Thumbnail (for gallery view) ---
+
+@router.get("/thumbnail")
+async def get_thumbnail(path: str = Query(..., description="Image file path")):
+    """Serve image file directly for thumbnails. Falls back to download."""
+    target = _safe_path(path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    ext = target.suffix.lower()
+    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico'}
+    video_exts = {'.mp4', '.webm', '.mov', '.avi', '.mkv'}
+    if ext in image_exts:
+        media_map = {
+            '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+            '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp',
+            '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+        }
+        return FileResponse(path=str(target), media_type=media_map.get(ext, 'application/octet-stream'))
+    if ext in video_exts:
+        return FileResponse(path=str(target), media_type='video/mp4')
+    raise HTTPException(status_code=400, detail="Not a supported media file")
+
+
 # --- Preview ---
 
 @router.get("/preview")
@@ -332,6 +355,35 @@ async def preview_file(path: str = Query(..., description="File to preview")):
     if ext in image_exts:
         return {
             "type": "image",
+            "name": target.name,
+            "size": size,
+            "url": f"/api/files/download?path={path}",
+        }
+
+    # Video files
+    video_exts = {'.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v', '.ogv'}
+    if ext in video_exts:
+        return {
+            "type": "video",
+            "name": target.name,
+            "size": size,
+            "url": f"/api/files/download?path={path}",
+        }
+
+    # Audio files
+    audio_exts = {'.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma', '.opus'}
+    if ext in audio_exts:
+        return {
+            "type": "audio",
+            "name": target.name,
+            "size": size,
+            "url": f"/api/files/download?path={path}",
+        }
+
+    # PDF files
+    if ext == '.pdf':
+        return {
+            "type": "pdf",
             "name": target.name,
             "size": size,
             "url": f"/api/files/download?path={path}",

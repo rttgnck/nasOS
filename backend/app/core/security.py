@@ -35,6 +35,15 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
 
 
+def decode_token(token: str) -> str | None:
+    """Extract username from JWT. Returns None on any failure."""
+    try:
+        payload = decode_access_token(token)
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
 async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> dict:
     """Decode JWT and return user dict. Raises 401 if invalid/missing."""
     credentials_exception = HTTPException(
