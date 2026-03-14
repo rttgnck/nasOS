@@ -5287,6 +5287,135 @@
   box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
 }
 
+/* Shared widget title row */
+.dw-widget-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8892b0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+/* Key-value rows used by multiple widgets */
+.dw-kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dw-kv-label {
+  font-size: 11px;
+  color: #5a6785;
+}
+
+.dw-kv-value {
+  font-size: 11px;
+  color: #8892b0;
+  text-align: right;
+}
+
+.dw-mono {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+}
+
+/* Network Widget */
+.dw-network-throughput {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  color: #8892b0;
+}
+
+/* Storage Widget */
+.dw-storage-row { margin-bottom: 6px; }
+.dw-storage-row:last-child { margin-bottom: 0; }
+
+.dw-storage-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+/* Docker Widget */
+.dw-docker-counts {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.dw-docker-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.dw-docker-num {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dw-docker-lbl {
+  font-size: 10px;
+  color: #5a6785;
+  text-transform: uppercase;
+}
+
+.dw-docker-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #8892b0;
+  margin-bottom: 3px;
+}
+
+.dw-docker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Uptime Widget */
+.dw-uptime-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ccd6f6;
+  margin-bottom: 2px;
+}
+
+.dw-uptime-load {
+  font-size: 11px;
+  color: #5a6785;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom Widget */
+.dw-custom-content {
+  font-size: 12px;
+  color: #8892b0;
+  line-height: 1.5;
+}
+
+.dw-custom-line { min-height: 1em; }
+
+/* Empty / loading state */
+.dw-widget-empty {
+  font-size: 11px;
+  color: #5a6785;
+  opacity: 0.7;
+}
+
 /* ===== Wallpaper Gallery ===== */
 .wp-gallery {
   display: grid;
@@ -5877,4 +6006,261 @@
   color: rgba(255, 255, 255, 0.35);
   line-height: 1.7;
   margin: 0;
+}
+
+/* ===== Widgets Settings Tab ===== */
+
+.wgt-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.wgt-card {
+  background: var(--color-bg-surface, #1e1e3a);
+  border: 1px solid var(--color-border, #2a2a4a);
+  border-radius: var(--radius, 8px);
+  padding: 14px;
+  transition: border-color 0.2s;
+}
+
+.wgt-card-active {
+  border-color: var(--color-accent, #e94560);
+}
+
+.wgt-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.wgt-card-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  color: var(--color-accent, #e94560);
+}
+
+.wgt-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.wgt-card-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text, #eee);
+  margin-bottom: 2px;
+}
+
+.wgt-card-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted, #8892b0);
+  line-height: 1.3;
+}
+
+.wgt-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Toggle Switch */
+.wgt-toggle {
+  flex-shrink: 0;
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.wgt-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.wgt-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: background 0.2s;
+}
+
+.wgt-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #aaa;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.wgt-toggle input:checked + .wgt-toggle-track {
+  background: var(--color-accent, #e94560);
+}
+
+.wgt-toggle input:checked + .wgt-toggle-track::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* Widget Order */
+.wgt-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wgt-order-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--color-bg-surface, #1e1e3a);
+  border: 1px solid var(--color-border, #2a2a4a);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-secondary, #aaa);
+}
+
+.wgt-order-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--color-text, #eee);
+}
+
+.wgt-order-arrows {
+  display: flex;
+  gap: 2px;
+}
+
+.wgt-arrow-btn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #aaa);
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.wgt-arrow-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text, #eee);
+}
+
+.wgt-arrow-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Widget Config Editor */
+.wgt-config-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 0.85rem;
+  color: var(--color-text, #eee);
+  cursor: pointer;
+}
+
+.wgt-config-row input[type="checkbox"] {
+  accent-color: var(--color-accent, #e94560);
+}
+
+.wgt-config-row select {
+  background: var(--color-bg-surface, #1e1e3a);
+  border: 1px solid var(--color-border, #2a2a4a);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text, #eee);
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* Custom Widget Template Editor */
+.wgt-template-editor {
+  width: 100%;
+  min-height: 120px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--color-border, #2a2a4a);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text, #eee);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.wgt-var-ref {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.wgt-var-ref-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #8892b0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.wgt-var-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wgt-var-tag {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  color: var(--color-accent, #e94560);
+}
+
+/* Template Cards */
+.wgt-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.wgt-template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  background: var(--color-bg-surface, #1e1e3a);
+  border: 1px solid var(--color-border, #2a2a4a);
+  border-radius: var(--radius, 8px);
+  color: var(--color-text-secondary, #aaa);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.wgt-template-card:hover {
+  border-color: var(--color-accent, #e94560);
+  background: rgba(255, 255, 255, 0.03);
 }

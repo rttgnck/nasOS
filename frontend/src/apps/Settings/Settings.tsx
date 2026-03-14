@@ -1,13 +1,20 @@
 import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  AlertTriangle, BatteryCharging, Check, Clock, Cpu, Globe, Info, Lock, LockOpen,
+  Activity, AlertTriangle, BatteryCharging, Box, Check, ChevronDown, ChevronUp, Clock,
+  Code, Copy, Cpu, Download, Globe, HardDrive, Info, LayoutGrid, Lock, LockOpen,
   Monitor, Network, Package, Palette, Pencil, Plug, Plus, Printer, Radio, RotateCcw, Shield,
-  Smartphone, Thermometer, Trash2, User as UserIcon, Users, Wifi, WifiOff, Zap,
+  Smartphone, Thermometer, Trash2, Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
 } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
 import { useSystemStore } from '../../store/systemStore'
+import {
+  useWidgetStore,
+  WIDGET_REGISTRY,
+  WIDGET_TEMPLATES,
+  type CustomWidget,
+} from '../../store/widgetStore'
 import {
   BUILT_IN_THEMES,
   DEFAULT_THEME,
@@ -103,6 +110,7 @@ interface ServiceInfo {
 
 type SettingsTab =
   | 'personalization'
+  | 'widgets'
   | 'users'
   | 'network'
   | 'services'
@@ -126,6 +134,9 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         <div className="set-nav-group">Appearance</div>
         <button className={`set-nav ${tab === 'personalization' ? 'active' : ''}`} onClick={() => setTab('personalization')}>
           <Palette size={14} strokeWidth={2} /> Personalization
+        </button>
+        <button className={`set-nav ${tab === 'widgets' ? 'active' : ''}`} onClick={() => setTab('widgets')}>
+          <LayoutGrid size={14} strokeWidth={2} /> Widgets
         </button>
 
         <div className="set-nav-group">System</div>
@@ -166,6 +177,7 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
       <div className="set-content">
         <TabErrorBoundary key={tab}>
           {tab === 'personalization' && <PersonalizationTab />}
+          {tab === 'widgets' && <WidgetsTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'network' && <NetworkTab />}
           {tab === 'services' && <ServicesTab />}
@@ -2107,6 +2119,406 @@ function PersonalizationTab() {
           onClose={() => setEditTarget(null)}
         />,
         document.body
+      )}
+    </div>
+  )
+}
+
+// ── Widgets Tab ─────────────────────────────────────────────────
+
+function widgetIcon(id: string, size = 16) {
+  switch (id) {
+    case 'clock': return <Clock size={size} />
+    case 'system-stats': return <Cpu size={size} />
+    case 'status': return <Wifi size={size} />
+    case 'file-ops': return <Copy size={size} />
+    case 'network': return <Network size={size} />
+    case 'storage': return <HardDrive size={size} />
+    case 'docker': return <Box size={size} />
+    case 'uptime': return <Activity size={size} />
+    default: return <Code size={size} />
+  }
+}
+
+function WidgetsTab() {
+  const enabledWidgets = useWidgetStore((s) => s.enabledWidgets)
+  const customWidgets = useWidgetStore((s) => s.customWidgets)
+  const widgetConfig = useWidgetStore((s) => s.widgetConfig)
+  const {
+    toggleWidget, moveWidget, addCustomWidget, updateCustomWidget,
+    deleteCustomWidget, updateWidgetConfig,
+  } = useWidgetStore()
+
+  const [editingBuiltIn, setEditingBuiltIn] = useState<string | null>(null)
+  const [editingCustom, setEditingCustom] = useState<CustomWidget | null>(null)
+  const [importError, setImportError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const allWidgets: { id: string; name: string; description: string; configurable: boolean; isCustom: boolean }[] = [
+    ...WIDGET_REGISTRY.map(w => ({ ...w, isCustom: false })),
+    ...customWidgets.map(w => ({
+      id: w.id, name: w.name, description: 'Custom widget',
+      configurable: true, isCustom: true,
+    })),
+  ]
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportError('')
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string)
+        if (!data.name || typeof data.template !== 'string') {
+          setImportError('Invalid widget file — must contain "name" and "template" fields.')
+          return
+        }
+        addCustomWidget({
+          id: `custom-${Date.now()}`,
+          name: data.name,
+          template: data.template,
+        })
+        setImportError('')
+      } catch {
+        setImportError('Failed to parse widget file. Ensure it is valid JSON.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const handleExport = (w: CustomWidget) => {
+    const data = JSON.stringify({ name: w.name, template: w.template }, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${w.name.toLowerCase().replace(/\s+/g, '-')}.widget.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleEdit = (id: string) => {
+    const custom = customWidgets.find(w => w.id === id)
+    if (custom) {
+      setEditingCustom({ ...custom })
+    } else {
+      setEditingBuiltIn(id)
+    }
+  }
+
+  const handleSaveCustom = () => {
+    if (!editingCustom || !editingCustom.name.trim()) return
+    const existing = customWidgets.find(w => w.id === editingCustom.id)
+    if (existing) {
+      updateCustomWidget(editingCustom)
+    } else {
+      addCustomWidget(editingCustom)
+    }
+    setEditingCustom(null)
+  }
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header">
+        <h3>Desktop Widgets</h3>
+      </div>
+      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted, #8892b0)', marginBottom: 16 }}>
+        Choose which widgets appear on your desktop and configure their display options.
+      </p>
+
+      {/* ── Widget Gallery ── */}
+      <div className="wgt-gallery">
+        {allWidgets.map((w) => {
+          const isEnabled = enabledWidgets.includes(w.id)
+          return (
+            <div key={w.id} className={`wgt-card ${isEnabled ? 'wgt-card-active' : ''}`}>
+              <div className="wgt-card-header">
+                <div className="wgt-card-icon">{widgetIcon(w.id)}</div>
+                <div className="wgt-card-info">
+                  <div className="wgt-card-name">{w.name}</div>
+                  <div className="wgt-card-desc">{w.description}</div>
+                </div>
+                <label className="wgt-toggle">
+                  <input type="checkbox" checked={isEnabled} onChange={() => toggleWidget(w.id)} />
+                  <span className="wgt-toggle-track" />
+                </label>
+              </div>
+              {isEnabled && (
+                <div className="wgt-card-actions">
+                  {w.configurable && (
+                    <button className="set-btn-sm" onClick={() => handleEdit(w.id)}>
+                      <Pencil size={11} /> Edit
+                    </button>
+                  )}
+                  {w.isCustom && (
+                    <>
+                      <button className="set-btn-sm" onClick={() => handleExport(customWidgets.find(c => c.id === w.id)!)}>
+                        <Download size={11} /> Export
+                      </button>
+                      <button className="set-btn-sm set-btn-danger" onClick={() => deleteCustomWidget(w.id)}>
+                        <Trash2 size={11} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── Widget Order ── */}
+      {enabledWidgets.length > 1 && (
+        <>
+          <div className="set-section-header" style={{ marginTop: 20 }}>
+            <h3>Widget Order</h3>
+          </div>
+          <div className="wgt-order-list">
+            {enabledWidgets.map((id, idx) => {
+              const def = allWidgets.find(w => w.id === id)
+              if (!def) return null
+              return (
+                <div key={id} className="wgt-order-item">
+                  {widgetIcon(id, 14)}
+                  <span className="wgt-order-name">{def.name}</span>
+                  <div className="wgt-order-arrows">
+                    <button
+                      className="wgt-arrow-btn"
+                      disabled={idx === 0}
+                      onClick={() => moveWidget(id, 'up')}
+                    >
+                      <ChevronUp size={14} />
+                    </button>
+                    <button
+                      className="wgt-arrow-btn"
+                      disabled={idx === enabledWidgets.length - 1}
+                      onClick={() => moveWidget(id, 'down')}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Custom Widgets ── */}
+      <div className="set-section-header" style={{ marginTop: 24 }}>
+        <h3>Custom Widgets</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="set-btn" onClick={() => fileRef.current?.click()}>
+            <Upload size={14} /> Import
+          </button>
+          <button
+            className="set-btn set-btn-primary"
+            onClick={() => setEditingCustom({ id: `custom-${Date.now()}`, name: '', template: '' })}
+          >
+            <Plus size={14} /> Create
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImport} />
+      </div>
+      {importError && <div className="shr-wizard-error" style={{ marginBottom: 10 }}>{importError}</div>}
+
+      <p style={{ fontSize: '0.82rem', color: 'var(--text-muted, #8892b0)', marginBottom: 12 }}>
+        Create a widget from a template or upload a <code>.widget.json</code> file.
+      </p>
+      <div className="wgt-template-grid">
+        {WIDGET_TEMPLATES.map((tpl) => (
+          <button
+            key={tpl.name}
+            className="wgt-template-card"
+            onClick={() => setEditingCustom({
+              id: `custom-${Date.now()}`,
+              name: tpl.name === 'Blank' ? '' : tpl.name,
+              template: tpl.template,
+            })}
+          >
+            <Code size={16} />
+            <span>{tpl.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Built-in Widget Config Editor ── */}
+      {editingBuiltIn && (
+        <div className="shr-overlay" onClick={() => setEditingBuiltIn(null)}>
+          <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
+            <div className="shr-wizard-header">
+              <h3>Edit {WIDGET_REGISTRY.find(w => w.id === editingBuiltIn)?.name ?? 'Widget'}</h3>
+              <button className="shr-btn-icon" onClick={() => setEditingBuiltIn(null)}>✕</button>
+            </div>
+            <div className="shr-wizard-body">
+              {editingBuiltIn === 'clock' && (
+                <>
+                  <label className="wgt-config-row">
+                    <span>Time Format</span>
+                    <select
+                      value={widgetConfig.clockFormat ?? '12h'}
+                      onChange={(e) => updateWidgetConfig({ clockFormat: e.target.value as '12h' | '24h' })}
+                    >
+                      <option value="12h">12-hour</option>
+                      <option value="24h">24-hour</option>
+                    </select>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.clockShowWeekday !== false}
+                      onChange={(e) => updateWidgetConfig({ clockShowWeekday: e.target.checked })}
+                    />
+                    <span>Show weekday</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.clockShowDate !== false}
+                      onChange={(e) => updateWidgetConfig({ clockShowDate: e.target.checked })}
+                    />
+                    <span>Show date</span>
+                  </label>
+                </>
+              )}
+
+              {editingBuiltIn === 'system-stats' && (
+                <>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.statsShowCpu !== false}
+                      onChange={(e) => updateWidgetConfig({ statsShowCpu: e.target.checked })}
+                    />
+                    <span>Show CPU usage</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.statsShowRam !== false}
+                      onChange={(e) => updateWidgetConfig({ statsShowRam: e.target.checked })}
+                    />
+                    <span>Show RAM usage</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.statsShowTemp !== false}
+                      onChange={(e) => updateWidgetConfig({ statsShowTemp: e.target.checked })}
+                    />
+                    <span>Show temperature</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.statsShowNetwork !== false}
+                      onChange={(e) => updateWidgetConfig({ statsShowNetwork: e.target.checked })}
+                    />
+                    <span>Show network throughput</span>
+                  </label>
+                </>
+              )}
+
+              {editingBuiltIn === 'network' && (
+                <>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.networkShowInterface !== false}
+                      onChange={(e) => updateWidgetConfig({ networkShowInterface: e.target.checked })}
+                    />
+                    <span>Show interface name &amp; speed</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.networkShowIp !== false}
+                      onChange={(e) => updateWidgetConfig({ networkShowIp: e.target.checked })}
+                    />
+                    <span>Show IP address</span>
+                  </label>
+                  <label className="wgt-config-row">
+                    <input
+                      type="checkbox"
+                      checked={widgetConfig.networkShowGateway !== false}
+                      onChange={(e) => updateWidgetConfig({ networkShowGateway: e.target.checked })}
+                    />
+                    <span>Show gateway</span>
+                  </label>
+                </>
+              )}
+
+              {editingBuiltIn === 'uptime' && (
+                <label className="wgt-config-row">
+                  <input
+                    type="checkbox"
+                    checked={widgetConfig.uptimeShowLoad !== false}
+                    onChange={(e) => updateWidgetConfig({ uptimeShowLoad: e.target.checked })}
+                  />
+                  <span>Show load averages</span>
+                </label>
+              )}
+            </div>
+            <div className="shr-wizard-footer">
+              <button className="shr-btn" onClick={() => setEditingBuiltIn(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Custom Widget Editor ── */}
+      {editingCustom && (
+        <div className="shr-overlay" onClick={() => setEditingCustom(null)}>
+          <div className="shr-wizard" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="shr-wizard-header">
+              <h3>{customWidgets.find(w => w.id === editingCustom.id) ? 'Edit Widget' : 'Create Widget'}</h3>
+              <button className="shr-btn-icon" onClick={() => setEditingCustom(null)}>✕</button>
+            </div>
+            <div className="shr-wizard-body">
+              <label className="shr-field">
+                <span>Widget Name</span>
+                <input
+                  type="text"
+                  value={editingCustom.name}
+                  onChange={(e) => setEditingCustom({ ...editingCustom, name: e.target.value })}
+                  placeholder="My Widget"
+                  maxLength={40}
+                />
+              </label>
+              <label className="shr-field">
+                <span>Template</span>
+                <textarea
+                  className="wgt-template-editor"
+                  value={editingCustom.template}
+                  onChange={(e) => setEditingCustom({ ...editingCustom, template: e.target.value })}
+                  rows={8}
+                  placeholder={'{{time}} · {{weekday}}\nCPU: {{cpu}}%'}
+                  spellCheck={false}
+                />
+              </label>
+              <div className="wgt-var-ref">
+                <div className="wgt-var-ref-title">Available Variables</div>
+                <div className="wgt-var-list">
+                  {['time', 'date', 'weekday', 'cpu', 'ram', 'temp', 'netUp', 'netDown', 'status', 'memUsed', 'memTotal'].map((v) => (
+                    <code key={v} className="wgt-var-tag">{`{{${v}}}`}</code>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="shr-wizard-footer">
+              <button className="shr-btn" onClick={() => setEditingCustom(null)}>Cancel</button>
+              <button
+                className="shr-btn shr-btn-primary"
+                disabled={!editingCustom.name.trim()}
+                onClick={handleSaveCustom}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
