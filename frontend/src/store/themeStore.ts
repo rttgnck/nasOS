@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { api } from '../hooks/useApi'
 
 // ── Theme Variable Keys ────────────────────────────────────────────
 
@@ -102,7 +103,6 @@ export const DEFAULT_THEME: Theme = {
     'color-shadow':        'rgba(0,0,0,0.4)',
     'radius':              '8px',
     'radius-sm':           '4px',
-    // Glass effect — per-surface, off by default
     'glass-blur-window':     '0px',
     'glass-blur-titlebar':   '0px',
     'glass-blur-taskbar':    '0px',
@@ -128,7 +128,6 @@ export const LIQUID_GLASS_THEME: Theme = {
   builtIn: true,
   vars: {
     'color-bg-desktop':    '#080d1f',
-    // Opaque base colours — per-element alpha is controlled by glass-*-alpha vars
     'color-bg-window':     '#102244',
     'color-bg-titlebar':   '#09182e',
     'color-bg-taskbar':    '#04070f',
@@ -141,7 +140,6 @@ export const LIQUID_GLASS_THEME: Theme = {
     'color-shadow':        'rgba(0,0,0,0.18)',
     'radius':              '14px',
     'radius-sm':           '7px',
-    // Glass effect — per-surface
     'glass-blur-window':     '32px',
     'glass-blur-titlebar':   '0px',
     'glass-blur-taskbar':    '28px',
@@ -163,20 +161,6 @@ export const LIQUID_GLASS_THEME: Theme = {
 
 export const BUILT_IN_THEMES: Theme[] = [DEFAULT_THEME, LIQUID_GLASS_THEME]
 
-// ── Persistence helpers ────────────────────────────────────────────
-
-function loadCustomThemes(): Theme[] {
-  try {
-    const raw = localStorage.getItem('nasos-custom-themes')
-    if (raw) return JSON.parse(raw) as Theme[]
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveCustomThemes(themes: Theme[]) {
-  localStorage.setItem('nasos-custom-themes', JSON.stringify(themes))
-}
-
 // ── DOM application ────────────────────────────────────────────────
 
 export function applyTheme(theme: Theme) {
@@ -186,8 +170,6 @@ export function applyTheme(theme: Theme) {
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(`--${key}`, value)
   }
-  // Derive binary border-visibility vars:
-  // 1 = show border (alpha == 1), 0 = hide border (any glass transparency)
   const alpha = (key: ThemeVar) => parseFloat(vars[key] ?? '1')
   root.style.setProperty('--glass-border-window',    alpha('glass-window-alpha')    >= 1 ? '1' : '0')
   root.style.setProperty('--glass-border-titlebar',  alpha('glass-titlebar-alpha')  >= 1 ? '1' : '0')
@@ -197,6 +179,24 @@ export function applyTheme(theme: Theme) {
   root.style.setProperty('--glass-border-widget',         alpha('glass-widget-alpha')         >= 1 ? '1' : '0')
   root.style.setProperty('--glass-border-notification',   alpha('glass-notification-alpha')   >= 1 ? '1' : '0')
   root.style.setProperty('--glass-border-modal',           alpha('glass-modal-alpha')           >= 1 ? '1' : '0')
+}
+
+// ── Backend persistence ────────────────────────────────────────────
+
+let _saveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistToBackend() {
+  if (_saveTimer) clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(() => {
+    const { activeThemeId, customThemes } = useThemeStore.getState()
+    api('/api/preferences/theme', {
+      method: 'PUT',
+      body: JSON.stringify({
+        active_theme_id: activeThemeId,
+        custom_themes: customThemes,
+      }),
+    }).catch(() => {})
+  }, 300)
 }
 
 // ── Store ──────────────────────────────────────────────────────────
@@ -210,53 +210,59 @@ interface ThemeStore {
   addCustomTheme: (theme: Theme) => void
   updateCustomTheme: (theme: Theme) => void
   deleteCustomTheme: (id: string) => void
+
+  /** Load theme prefs from the backend after authentication. */
+  loadFromBackend: () => Promise<void>
+  /** Apply an incoming WebSocket theme_update from another session. */
+  applyRemoteUpdate: (data: { active_theme_id: string; custom_themes: Theme[] }) => void
+}
+
+function resolveTheme(id: string, customs: Theme[]): Theme {
+  return (
+    BUILT_IN_THEMES.find((t) => t.id === id) ??
+    customs.find((t) => t.id === id) ??
+    DEFAULT_THEME
+  )
 }
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   activeThemeId: localStorage.getItem('nasos-theme') ?? 'default',
-  customThemes: loadCustomThemes(),
+  customThemes: [],
 
   getActiveTheme: () => {
     const { activeThemeId, customThemes } = get()
-    return (
-      BUILT_IN_THEMES.find((t) => t.id === activeThemeId) ??
-      customThemes.find((t) => t.id === activeThemeId) ??
-      DEFAULT_THEME
-    )
+    return resolveTheme(activeThemeId, customThemes)
   },
 
   setActiveTheme: (id) => {
     const { customThemes } = get()
-    const theme =
-      BUILT_IN_THEMES.find((t) => t.id === id) ??
-      customThemes.find((t) => t.id === id) ??
-      DEFAULT_THEME
+    const theme = resolveTheme(id, customThemes)
     localStorage.setItem('nasos-theme', id)
     applyTheme(theme)
     set({ activeThemeId: id })
+    persistToBackend()
   },
 
   addCustomTheme: (theme) => {
     set((state) => {
       const updated = [...state.customThemes, theme]
-      saveCustomThemes(updated)
       return { customThemes: updated }
     })
+    persistToBackend()
   },
 
   updateCustomTheme: (theme) => {
     set((state) => {
       const updated = state.customThemes.map((t) => (t.id === theme.id ? theme : t))
-      saveCustomThemes(updated)
       if (state.activeThemeId === theme.id) applyTheme(theme)
       return { customThemes: updated }
     })
+    persistToBackend()
   },
 
   deleteCustomTheme: (id) => {
     set((state) => {
       const updated = state.customThemes.filter((t) => t.id !== id)
-      saveCustomThemes(updated)
       const patch: Partial<ThemeStore> = { customThemes: updated }
       if (state.activeThemeId === id) {
         localStorage.setItem('nasos-theme', 'default')
@@ -265,17 +271,39 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       }
       return patch
     })
+    persistToBackend()
+  },
+
+  loadFromBackend: async () => {
+    try {
+      const data = await api<{ active_theme_id: string; custom_themes: Theme[] }>(
+        '/api/preferences/theme',
+      )
+      const customs = data.custom_themes ?? []
+      const id = data.active_theme_id ?? 'default'
+      const theme = resolveTheme(id, customs)
+      localStorage.setItem('nasos-theme', id)
+      set({ activeThemeId: id, customThemes: customs })
+      applyTheme(theme)
+    } catch {
+      // Backend unreachable — keep whatever is in localStorage
+    }
+  },
+
+  applyRemoteUpdate: (data) => {
+    const customs = data.custom_themes ?? []
+    const id = data.active_theme_id ?? 'default'
+    const theme = resolveTheme(id, customs)
+    localStorage.setItem('nasos-theme', id)
+    set({ activeThemeId: id, customThemes: customs })
+    applyTheme(theme)
   },
 }))
 
-// ── Init (call once on app boot) ───────────────────────────────────
+// ── Init (call once on app boot, before auth) ──────────────────────
 
 export function initTheme() {
   const id = localStorage.getItem('nasos-theme') ?? 'default'
-  const customs = loadCustomThemes()
-  const theme =
-    BUILT_IN_THEMES.find((t) => t.id === id) ??
-    customs.find((t) => t.id === id) ??
-    DEFAULT_THEME
+  const theme = resolveTheme(id, [])
   applyTheme(theme)
 }

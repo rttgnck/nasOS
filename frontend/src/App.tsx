@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
+import { useThemeStore } from './store/themeStore'
 import { Desktop } from './desktop/Desktop'
 import { LoginScreen } from './apps/LoginScreen/LoginScreen'
 
@@ -7,10 +8,17 @@ export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const isLoading = useAuthStore((s) => s.isLoading)
   const checkAuth = useAuthStore((s) => s.checkAuth)
+  const loadThemeFromBackend = useThemeStore((s) => s.loadFromBackend)
 
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadThemeFromBackend()
+    }
+  }, [isAuthenticated, loadThemeFromBackend])
 
   // Show nothing while checking existing token
   if (isLoading && !isAuthenticated) {

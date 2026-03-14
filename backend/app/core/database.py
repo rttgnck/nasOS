@@ -22,6 +22,7 @@ async def init_db():
     import app.models.share  # noqa: F401
     import app.models.backup  # noqa: F401
     import app.models.file_operation  # noqa: F401
+    import app.models.user_preferences  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -3,6 +3,7 @@ import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
 import { useMetricsWebSocket } from '../hooks/useWebSocket'
 import { useFileOpsWebSocket } from '../hooks/useFileOpsWebSocket'
+import { useThemeSyncWebSocket } from '../hooks/useThemeSyncWebSocket'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { Window } from './Window'
 import { Taskbar } from './Taskbar'
@@ -29,6 +30,7 @@ import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
 export function Desktop() {
   useMetricsWebSocket()
   useFileOpsWebSocket()
+  useThemeSyncWebSocket()
   const { showAltTab, altTabIndex } = useKeyboardShortcuts()
 
   const windows = useWindowStore((s) => s.windows)
