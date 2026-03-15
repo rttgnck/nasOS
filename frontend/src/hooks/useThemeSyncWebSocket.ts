@@ -4,21 +4,30 @@ import { useThemeStore } from '../store/themeStore'
 
 export function useThemeSyncWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
+  const token = useAuthStore((s) => s.token)
 
   useEffect(() => {
+    if (!token) return
+
     let reconnectTimeout: ReturnType<typeof setTimeout>
+    let retryDelay = 1000
     let mounted = true
 
     function connect() {
-      const token = useAuthStore.getState().token
-      if (!token) return
+      if (!mounted) return
+      const currentToken = useAuthStore.getState().token
+      if (!currentToken) return
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const host = window.location.host
       const ws = new WebSocket(
-        `${protocol}//${host}/ws/theme-sync?token=${encodeURIComponent(token)}`,
+        `${protocol}//${host}/ws/theme-sync?token=${encodeURIComponent(currentToken)}`,
       )
       wsRef.current = ws
+
+      ws.onopen = () => {
+        retryDelay = 1000
+      }
 
       ws.onmessage = (event) => {
         try {
@@ -33,7 +42,8 @@ export function useThemeSyncWebSocket() {
 
       ws.onclose = () => {
         if (mounted) {
-          reconnectTimeout = setTimeout(connect, 3000)
+          reconnectTimeout = setTimeout(connect, retryDelay)
+          retryDelay = Math.min(retryDelay * 1.5, 15000)
         }
       }
 
@@ -47,5 +57,5 @@ export function useThemeSyncWebSocket() {
       clearTimeout(reconnectTimeout)
       wsRef.current?.close()
     }
-  }, [])
+  }, [token])
 }

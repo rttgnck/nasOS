@@ -3,13 +3,30 @@ import { createPortal } from 'react-dom'
 import {
   type LucideIcon,
   FolderOpen, HardDrive, Share2, Users, Box, Network, Activity, Archive, ScrollText, Settings, RefreshCw,
-  TerminalSquare, LogOut, RotateCcw, PowerOff,
+  TerminalSquare, LogOut, RotateCcw, PowerOff, Globe, Package, Keyboard,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
 import { useAuthStore } from '../store/authStore'
 import { NotificationCenter } from './NotificationCenter'
 import { PowerModal } from './PowerModal'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+
+const APP_ICONS: Record<string, LucideIcon> = {
+  'file-manager': FolderOpen,
+  'storage-manager': HardDrive,
+  'share-manager': Share2,
+  'user-manager': Users,
+  'docker-manager': Box,
+  'network-settings': Globe,
+  'system-monitor': Activity,
+  'backup-manager': Archive,
+  'log-viewer': ScrollText,
+  'terminal': TerminalSquare,
+  'settings': Settings,
+  'system-updates': RefreshCw,
+  'personalization': Settings,
+}
 
 const APP_MENU_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'file-manager',     label: 'File Manager', Icon: FolderOpen  },
@@ -27,13 +44,14 @@ const APP_MENU_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
 ]
 
 export function Taskbar() {
-  const { windows, focusWindow, minimizeWindow, minimizeAll, restoreAll } = useWindowStore()
+  const { windows, focusWindow, minimizeWindow, minimizeAll, restoreAll, toggleMaximize, requestClose } = useWindowStore()
   const { metrics, isConnected } = useSystemStore()
   const { openWindow } = useWindowStore()
   const { logout, user } = useAuthStore()
   const [showMenu, setShowMenu] = useState(false)
   const [powerMode, setPowerMode] = useState<'restart' | 'shutdown' | null>(null)
   const [clock, setClock] = useState(formatTime())
+  const [taskCtx, setTaskCtx] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -159,6 +177,7 @@ export function Taskbar() {
       <div className="taskbar-tasks">
         {windows.map((win) => {
           const isFocused = useWindowStore.getState().focusedWindowId === win.id
+          const Icon = APP_ICONS[win.appId] ?? Package
           return (
             <button
               key={win.id}
@@ -166,9 +185,24 @@ export function Taskbar() {
               data-focused={isFocused && !win.isMinimized}
               data-minimized={win.isMinimized}
               onClick={() => handleTaskClick(win.id, win.isMinimized, isFocused)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setTaskCtx({
+                  x: e.clientX,
+                  y: e.clientY,
+                  items: [
+                    { label: win.isMaximized ? 'Restore' : 'Maximize', action: () => toggleMaximize(win.id) },
+                    { label: 'Minimize', action: () => minimizeWindow(win.id) },
+                    { separator: true, label: '' },
+                    { label: 'Close', action: () => requestClose(win.id) },
+                  ],
+                })
+              }}
               title={win.title}
             >
-              {win.title}
+              <Icon size={14} strokeWidth={1.75} />
+              <span className="taskbar-task-label">{win.title}</span>
             </button>
           )
         })}
@@ -194,6 +228,15 @@ export function Taskbar() {
           {isConnected ? '●' : '○'}
         </span>
 
+        {/* On-Screen Keyboard toggle */}
+        <button
+          className="tray-item tray-btn"
+          title="On-Screen Keyboard"
+          onClick={() => window.dispatchEvent(new CustomEvent('nasos:toggle-osk'))}
+        >
+          <Keyboard size={15} strokeWidth={1.75} />
+        </button>
+
         {/* Notification Center */}
         <NotificationCenter />
 
@@ -202,6 +245,17 @@ export function Taskbar() {
         {/* Show Desktop strip */}
         <button className="taskbar-show-desktop" onClick={handleShowDesktop} title="Show Desktop" />
       </div>
+
+      {/* Task button right-click context menu */}
+      {taskCtx && createPortal(
+        <ContextMenu
+          x={taskCtx.x}
+          y={taskCtx.y}
+          items={taskCtx.items}
+          onClose={() => setTaskCtx(null)}
+        />,
+        document.body
+      )}
     </div>
   )
 }

@@ -27,11 +27,14 @@ import { PlaceholderApp } from '../apps/PlaceholderApp'
 import { ToastContainer } from './ToastContainer'
 import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
 import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
+import { OnScreenKeyboard } from './OnScreenKeyboard'
+import { useUpdateCheck } from '../hooks/useUpdateCheck'
 
 export function Desktop() {
   useMetricsWebSocket()
   useFileOpsWebSocket()
   useThemeSyncWebSocket()
+  useUpdateCheck()
   const { showAltTab, altTabIndex } = useKeyboardShortcuts()
 
   const windows = useWindowStore((s) => s.windows)
@@ -53,6 +56,8 @@ export function Desktop() {
           { label: 'Open File Manager', action: () => openWindow('file-manager', 'File Manager') },
           { label: 'Open Terminal', action: () => openWindow('terminal', 'Terminal') },
           { label: 'Open System Monitor', action: () => openWindow('system-monitor', 'Monitor') },
+          { separator: true, label: '' },
+          { label: 'Personalization', action: () => openWindow('personalization', 'Personalization') },
           { separator: true, label: '' },
           { label: 'Refresh', action: () => window.location.reload() },
           { separator: true, label: '' },
@@ -85,6 +90,8 @@ export function Desktop() {
         return <Settings initialTab="network" />
       case 'system-updates':
         return <Settings initialTab="updates" />
+      case 'personalization':
+        return <Settings initialTab="personalization" />
       case 'system-monitor':
         return <SystemMonitor />
       case 'terminal':
@@ -142,6 +149,7 @@ export function Desktop() {
       <ToastContainer />
       <ChangePasswordModal />
       <FileOpsModal />
+      <OnScreenKeyboard />
       <Taskbar />
     </div>
   )

@@ -110,6 +110,15 @@ async def check_for_updates():
         raise HTTPException(502, f"Failed to check for updates: {exc}") from exc
 
 
+@router.get("/check/cached")
+async def get_cached_update_check():
+    """Return the last cached update check result (from daily background check or manual)."""
+    result = update_service.get_cached_release_check()
+    if result is None:
+        return {"update_available": False, "current_version": update_service._current_version()}
+    return result
+
+
 @router.post("/download")
 async def download_update(body: dict):
     """Download a .nasos update from a GitHub release asset URL."""

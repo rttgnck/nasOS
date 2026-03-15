@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import type { FileEntry } from './FileManager'
 
 interface FileContextMenuProps {
@@ -40,12 +41,8 @@ export function FileContextMenu({
     }
   }, [onClose])
 
-  const style: React.CSSProperties = {
-    position: 'fixed',
-    left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - 350),
-    zIndex: 9999999,
-  }
+  const adjustedX = Math.min(x, window.innerWidth - 200)
+  const adjustedY = Math.min(y, window.innerHeight - 350)
 
   const item = (label: string, action: () => void, disabled = false, shortcut?: string) => (
     <button className="context-menu-item" disabled={disabled}
@@ -57,8 +54,9 @@ export function FileContextMenu({
 
   const separator = <div className="context-menu-separator" />
 
-  return (
-    <div ref={menuRef} className="context-menu fm-context-menu" style={style}>
+  return createPortal(
+    <div ref={menuRef} className="context-menu fm-context-menu"
+      style={{ left: adjustedX, top: adjustedY }}>
       {entry ? (
         <>
           {item('Open', onOpen)}
@@ -81,6 +79,7 @@ export function FileContextMenu({
           {item('Refresh', () => window.location.reload())}
         </>
       )}
-    </div>
+    </div>,
+    document.body
   )
 }

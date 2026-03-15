@@ -33,6 +33,12 @@ export type ThemeVar =
   | 'glass-widget-alpha'
   | 'glass-notification-alpha'
   | 'glass-modal-alpha'
+  | 'osk-key-bg'
+  | 'osk-key-color'
+  | 'osk-key-border'
+  | 'osk-key-hover'
+  | 'osk-key-active'
+  | 'osk-key-radius'
 
 export const THEME_VAR_META: {
   key: ThemeVar
@@ -72,6 +78,12 @@ export const THEME_VAR_META: {
   { key: 'glass-widget-alpha',        label: 'Widget Opacity',       type: 'slider', group: 'Glass Effect', sliderMin: 0, sliderMax: 1,  sliderStep: 0.01, sliderUnit: '' },
   { key: 'glass-notification-alpha',  label: 'Notification Opacity', type: 'slider', group: 'Glass Effect', sliderMin: 0, sliderMax: 1,  sliderStep: 0.01, sliderUnit: '' },
   { key: 'glass-modal-alpha',          label: 'Modal Opacity',        type: 'slider', group: 'Glass Effect', sliderMin: 0, sliderMax: 1,  sliderStep: 0.01, sliderUnit: '' },
+  { key: 'osk-key-bg',           label: 'Key Background',       type: 'color',  group: 'Keyboard' },
+  { key: 'osk-key-color',        label: 'Key Text Color',       type: 'color',  group: 'Keyboard' },
+  { key: 'osk-key-border',       label: 'Key Border',           type: 'color',  group: 'Keyboard' },
+  { key: 'osk-key-hover',        label: 'Key Hover',            type: 'color',  group: 'Keyboard' },
+  { key: 'osk-key-active',       label: 'Key Active/Pressed',   type: 'color',  group: 'Keyboard' },
+  { key: 'osk-key-radius',       label: 'Key Border Radius',    type: 'text',   group: 'Keyboard' },
 ]
 
 // ── Theme Definition ───────────────────────────────────────────────
@@ -119,6 +131,12 @@ export const DEFAULT_THEME: Theme = {
     'glass-widget-alpha':         '1',
     'glass-notification-alpha':   '1',
     'glass-modal-alpha':          '1',
+    'osk-key-bg':                 'rgba(255, 255, 255, 0.08)',
+    'osk-key-color':              '#eeeeee',
+    'osk-key-border':             'rgba(255, 255, 255, 0.06)',
+    'osk-key-hover':              'rgba(255, 255, 255, 0.14)',
+    'osk-key-active':             '#e94560',
+    'osk-key-radius':             '4px',
   },
 }
 
@@ -156,6 +174,12 @@ export const LIQUID_GLASS_THEME: Theme = {
     'glass-widget-alpha':         '0.60',
     'glass-notification-alpha':   '0.85',
     'glass-modal-alpha':          '0.70',
+    'osk-key-bg':                 'rgba(255, 255, 255, 0.06)',
+    'osk-key-color':              'rgba(255, 255, 255, 0.95)',
+    'osk-key-border':             'rgba(255, 255, 255, 0.08)',
+    'osk-key-hover':              'rgba(255, 255, 255, 0.12)',
+    'osk-key-active':             '#4fc3f7',
+    'osk-key-radius':             '7px',
   },
 }
 
@@ -275,18 +299,24 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   },
 
   loadFromBackend: async () => {
-    try {
-      const data = await api<{ active_theme_id: string; custom_themes: Theme[] }>(
-        '/api/preferences/theme',
-      )
-      const customs = data.custom_themes ?? []
-      const id = data.active_theme_id ?? 'default'
-      const theme = resolveTheme(id, customs)
-      localStorage.setItem('nasos-theme', id)
-      set({ activeThemeId: id, customThemes: customs })
-      applyTheme(theme)
-    } catch {
-      // Backend unreachable — keep whatever is in localStorage
+    const maxRetries = 3
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const data = await api<{ active_theme_id: string; custom_themes: Theme[] }>(
+          '/api/preferences/theme',
+        )
+        const customs = data.custom_themes ?? []
+        const id = data.active_theme_id ?? 'default'
+        const theme = resolveTheme(id, customs)
+        localStorage.setItem('nasos-theme', id)
+        set({ activeThemeId: id, customThemes: customs })
+        applyTheme(theme)
+        return
+      } catch {
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+        }
+      }
     }
   },
 

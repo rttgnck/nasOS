@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,11 +11,22 @@ from app.core.config import settings
 from app.core.database import async_session, init_db
 from app.services.share_service import seed_default_shares, ensure_smb_global_settings
 from app.services.user_service import ensure_admin_user
+from app.services.update_service import background_update_check
 from app.core.security import get_current_user
 from app.ws.metrics import metrics_ws
 from app.ws.file_ops import file_ops_ws
 from app.ws.theme_sync import theme_sync_ws
 from app.ws.terminal import terminal_ws
+
+_UPDATE_CHECK_INTERVAL = 86400  # 24 hours
+
+
+async def _daily_update_checker():
+    """Background task that checks for updates once daily."""
+    await asyncio.sleep(30)  # initial delay to let the app start up
+    while True:
+        await background_update_check()
+        await asyncio.sleep(_UPDATE_CHECK_INTERVAL)
 
 
 @asynccontextmanager
@@ -29,7 +41,10 @@ async def lifespan(app: FastAPI):
     ensure_smb_global_settings()
     # Ensure the built-in admin user exists with Samba access + change-password flag
     ensure_admin_user()
+    # Start daily update checker
+    update_task = asyncio.create_task(_daily_update_checker())
     yield
+    update_task.cancel()
 
 
 app = FastAPI(

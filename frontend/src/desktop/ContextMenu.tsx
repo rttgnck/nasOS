@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export interface MenuItem {
   label: string
@@ -16,6 +16,16 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ x, y })
+
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    setPos({
+      x: Math.min(x, window.innerWidth - rect.width - 4),
+      y: Math.min(y, window.innerHeight - rect.height - 4),
+    })
+  }, [x, y])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -35,15 +45,11 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     }
   }, [onClose])
 
-  // Adjust position so menu stays on screen
-  const adjustedX = Math.min(x, window.innerWidth - 200)
-  const adjustedY = Math.min(y, window.innerHeight - items.length * 36 - 48)
-
   return (
     <div
       ref={ref}
       className="context-menu"
-      style={{ left: adjustedX, top: adjustedY }}
+      style={{ left: pos.x, top: pos.y }}
     >
       {items.map((item, i) =>
         item.separator ? (

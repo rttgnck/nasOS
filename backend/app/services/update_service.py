@@ -39,6 +39,26 @@ def _current_version() -> str:
     return settings.version
 
 
+def _parse_semver(v: str) -> tuple[int, ...]:
+    """Parse a version string like '1.2.3' into a tuple of ints for comparison."""
+    parts = []
+    for p in v.lstrip("v").split("."):
+        try:
+            parts.append(int(p.split("-")[0]))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def _version_newer(candidate: str, current: str) -> bool:
+    """Return True if candidate is strictly newer than current."""
+    return _parse_semver(candidate) > _parse_semver(current)
+
+
+# Cached daily release check result
+_cached_release_check: dict[str, Any] = {"result": None, "checked_at": 0.0}
+
+
 def get_free_mb() -> int:
     """Return free megabytes on the filesystem that hosts the nasOS installation."""
     try:
@@ -462,10 +482,10 @@ async def check_github_release() -> dict[str, Any]:
 
     update_available = (
         nasos_asset is not None
-        and release_version != current
+        and _version_newer(release_version, current)
     )
 
-    return {
+    result = {
         "current_version": current,
         "update_available": update_available,
         "latest_version": release_version,
@@ -474,6 +494,25 @@ async def check_github_release() -> dict[str, Any]:
         "changelog": body,
         "asset": nasos_asset,
     }
+
+    _cached_release_check["result"] = result
+    _cached_release_check["checked_at"] = __import__("time").time()
+
+    return result
+
+
+def get_cached_release_check() -> dict[str, Any] | None:
+    """Return the cached release check result, or None if no check has been performed."""
+    return _cached_release_check.get("result")
+
+
+async def background_update_check():
+    """Periodic background check — called by the lifespan scheduler."""
+    try:
+        await check_github_release()
+        log.info("Background update check completed")
+    except Exception as exc:
+        log.warning("Background update check failed: %s", exc)
 
 
 async def download_github_release(download_url: str, filename: str) -> dict[str, Any]:

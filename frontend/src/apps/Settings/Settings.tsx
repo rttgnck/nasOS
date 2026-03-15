@@ -1298,6 +1298,15 @@ function UpdatesTab() {
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [loadStatus])
 
+  // ── Load cached release check on mount ──────────────────────
+  useEffect(() => {
+    let cancelled = false
+    api<GitHubRelease>('/api/update/check/cached')
+      .then((r) => { if (!cancelled && r.update_available) setGhRelease(r) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   // ── GitHub release check ────────────────────────────────────
   const checkForUpdates = async () => {
     setChecking(true)
@@ -1574,7 +1583,7 @@ function UpdatesTab() {
         <>
           {/* GitHub release check */}
           <div className="set-section-header" style={{ marginTop: 20 }}>
-            <h3>Check for Updates</h3>
+            <h3>{ghRelease?.update_available ? 'Update Available' : 'Check for Updates'}</h3>
             <button className="set-btn" onClick={checkForUpdates} disabled={checking || downloading}>
               {checking ? (
                 <><Loader size={13} className="mv-spinner" /> Checking…</>
