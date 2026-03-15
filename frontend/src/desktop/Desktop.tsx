@@ -29,12 +29,14 @@ import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePass
 import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
 import { OnScreenKeyboard } from './OnScreenKeyboard'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
+import { useDesktopSync } from '../hooks/useDesktopSync'
 
 export function Desktop() {
   useMetricsWebSocket()
   useFileOpsWebSocket()
   useThemeSyncWebSocket()
   useUpdateCheck()
+  useDesktopSync()
   const { showAltTab, altTabIndex } = useKeyboardShortcuts()
 
   const windows = useWindowStore((s) => s.windows)

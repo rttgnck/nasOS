@@ -12,6 +12,7 @@ class UserPreferences(Base):
     username: Mapped[str] = mapped_column(String(128), primary_key=True)
     active_theme_id: Mapped[str] = mapped_column(String(128), nullable=False, default="default")
     custom_themes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    desktop_state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

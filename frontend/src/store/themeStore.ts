@@ -209,18 +209,33 @@ export function applyTheme(theme: Theme) {
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null
 
+async function _doPersist() {
+  const { activeThemeId, customThemes } = useThemeStore.getState()
+  const payload = {
+    active_theme_id: activeThemeId,
+    custom_themes: customThemes,
+  }
+  const maxAttempts = 3
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      await api('/api/preferences/theme', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      return // success
+    } catch {
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+      } else {
+        console.error('[themeStore] Failed to persist theme to backend after retries')
+      }
+    }
+  }
+}
+
 function persistToBackend() {
   if (_saveTimer) clearTimeout(_saveTimer)
-  _saveTimer = setTimeout(() => {
-    const { activeThemeId, customThemes } = useThemeStore.getState()
-    api('/api/preferences/theme', {
-      method: 'PUT',
-      body: JSON.stringify({
-        active_theme_id: activeThemeId,
-        custom_themes: customThemes,
-      }),
-    }).catch(() => {})
-  }, 300)
+  _saveTimer = setTimeout(_doPersist, 300)
 }
 
 // ── Store ──────────────────────────────────────────────────────────
@@ -249,9 +264,17 @@ function resolveTheme(id: string, customs: Theme[]): Theme {
   )
 }
 
+function _loadCachedCustomThemes(): Theme[] {
+  try {
+    const raw = localStorage.getItem('nasos-custom-themes')
+    if (raw) return JSON.parse(raw) as Theme[]
+  } catch { /* corrupt data — ignore */ }
+  return []
+}
+
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   activeThemeId: localStorage.getItem('nasos-theme') ?? 'default',
-  customThemes: [],
+  customThemes: _loadCachedCustomThemes(),
 
   getActiveTheme: () => {
     const { activeThemeId, customThemes } = get()
@@ -270,6 +293,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   addCustomTheme: (theme) => {
     set((state) => {
       const updated = [...state.customThemes, theme]
+      localStorage.setItem('nasos-custom-themes', JSON.stringify(updated))
       return { customThemes: updated }
     })
     persistToBackend()
@@ -279,6 +303,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set((state) => {
       const updated = state.customThemes.map((t) => (t.id === theme.id ? theme : t))
       if (state.activeThemeId === theme.id) applyTheme(theme)
+      localStorage.setItem('nasos-custom-themes', JSON.stringify(updated))
       return { customThemes: updated }
     })
     persistToBackend()
@@ -293,6 +318,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         patch.activeThemeId = 'default'
         applyTheme(DEFAULT_THEME)
       }
+      localStorage.setItem('nasos-custom-themes', JSON.stringify(updated))
       return patch
     })
     persistToBackend()
@@ -309,12 +335,15 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
         const id = data.active_theme_id ?? 'default'
         const theme = resolveTheme(id, customs)
         localStorage.setItem('nasos-theme', id)
+        localStorage.setItem('nasos-custom-themes', JSON.stringify(customs))
         set({ activeThemeId: id, customThemes: customs })
         applyTheme(theme)
         return
-      } catch {
+      } catch (err) {
         if (attempt < maxRetries - 1) {
           await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+        } else {
+          console.error('[themeStore] Failed to load theme from backend:', err)
         }
       }
     }
@@ -325,6 +354,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const id = data.active_theme_id ?? 'default'
     const theme = resolveTheme(id, customs)
     localStorage.setItem('nasos-theme', id)
+    localStorage.setItem('nasos-custom-themes', JSON.stringify(customs))
     set({ activeThemeId: id, customThemes: customs })
     applyTheme(theme)
   },
@@ -334,6 +364,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
 export function initTheme() {
   const id = localStorage.getItem('nasos-theme') ?? 'default'
-  const theme = resolveTheme(id, [])
+  const cachedCustoms = _loadCachedCustomThemes()
+  const theme = resolveTheme(id, cachedCustoms)
   applyTheme(theme)
 }

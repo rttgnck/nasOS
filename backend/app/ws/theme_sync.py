@@ -31,6 +31,16 @@ async def broadcast_theme_update(username: str, data: dict):
             pass
 
 
+async def broadcast_desktop_update(username: str, data: dict):
+    """Push a desktop_update message to every WebSocket session for this user."""
+    msg = json.dumps({"type": "desktop_update", **data})
+    for q in list(_user_subscribers.get(username, [])):
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            pass
+
+
 async def theme_sync_ws(websocket: WebSocket):
     """
     Per-user theme sync channel.

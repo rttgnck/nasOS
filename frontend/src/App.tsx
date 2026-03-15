@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useAuthStore } from './store/authStore'
 import { useThemeStore } from './store/themeStore'
 import { Desktop } from './desktop/Desktop'
@@ -9,14 +9,22 @@ export function App() {
   const isLoading = useAuthStore((s) => s.isLoading)
   const checkAuth = useAuthStore((s) => s.checkAuth)
   const loadThemeFromBackend = useThemeStore((s) => s.loadFromBackend)
+  const themeLoadedRef = useRef(false)
 
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
 
+  // Load theme from backend whenever the user becomes authenticated.
+  // Also runs on mount if the user is already authenticated (e.g. page reload
+  // with a valid token) to guarantee the backend theme always wins over
+  // whatever localStorage had cached from a previous session on this device.
   useEffect(() => {
     if (isAuthenticated) {
+      themeLoadedRef.current = true
       loadThemeFromBackend()
+    } else {
+      themeLoadedRef.current = false
     }
   }, [isAuthenticated, loadThemeFromBackend])
 

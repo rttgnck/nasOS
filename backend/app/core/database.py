@@ -18,7 +18,6 @@ async def get_db() -> AsyncSession:
 async def init_db():
     """Create tables on startup."""
     from app.models.base import Base
-    # Explicitly import all models so their tables are registered with Base.metadata
     import app.models.share  # noqa: F401
     import app.models.backup  # noqa: F401
     import app.models.file_operation  # noqa: F401
@@ -26,3 +25,22 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    await _migrate_user_preferences()
+
+
+async def _migrate_user_preferences():
+    """Add columns that may be missing on existing databases."""
+    import sqlalchemy as sa
+
+    async with engine.begin() as conn:
+        result = await conn.execute(sa.text("PRAGMA table_info(user_preferences)"))
+        columns = {row[1] for row in result.fetchall()}
+
+        if "desktop_state_json" not in columns:
+            await conn.execute(
+                sa.text(
+                    "ALTER TABLE user_preferences "
+                    "ADD COLUMN desktop_state_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            )

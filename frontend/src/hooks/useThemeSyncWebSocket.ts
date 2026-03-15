@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
+import { applyDesktopState } from './useDesktopSync'
 
 export function useThemeSyncWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
@@ -34,6 +35,8 @@ export function useThemeSyncWebSocket() {
           const data = JSON.parse(event.data)
           if (data.type === 'theme_update') {
             useThemeStore.getState().applyRemoteUpdate(data)
+          } else if (data.type === 'desktop_update') {
+            applyDesktopState(data)
           }
         } catch {
           // ignore
