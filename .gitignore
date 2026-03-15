@@ -37,6 +37,7 @@ Thumbs.db
 *.img.gz
 *.img.xz
 *.zip
+dist-demo/
 
 # Image builder — generated at build time, not source
 image-builder/.pi-gen/

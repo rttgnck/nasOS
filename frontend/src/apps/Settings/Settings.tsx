@@ -1,11 +1,11 @@
 import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Activity, AlertTriangle, BatteryCharging, Box, Check, ChevronDown, ChevronUp, Clock,
-  Code, Coffee, Copy, Cpu, Download, ExternalLink, Github, Globe, HardDrive, Heart, Info,
-  LayoutGrid, Loader, Lock, LockOpen, Monitor, Network, Package, Palette, Pencil, Plug,
-  Plus, Printer, Radio, RefreshCw, RotateCcw, Shield, Smartphone, Thermometer, Trash2,
-  Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
+  Activity, AlertTriangle, Anchor, BatteryCharging, Box, Check, ChevronDown, ChevronUp, Clock,
+  Code, Coffee, Copy, Cpu, Download, ExternalLink, Github, Globe, GripVertical, HardDrive,
+  Heart, Info, Layout, LayoutGrid, Loader, Lock, LockOpen, Monitor, Network, Package, Palette,
+  Pencil, Plug, Plus, Printer, Radio, RefreshCw, RotateCcw, Shield, Smartphone, Thermometer,
+  Trash2, Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
 } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
@@ -25,6 +25,8 @@ import {
   applyTheme,
   useThemeStore,
 } from '../../store/themeStore'
+import { useDockStore } from '../../store/dockStore'
+import { useLayoutStore, type ScreenEdge } from '../../store/layoutStore'
 import { PasswordInput } from '../../components/PasswordInput'
 
 // ── Error Boundary ────────────────────────────────────────────────
@@ -112,6 +114,8 @@ interface ServiceInfo {
 type SettingsTab =
   | 'personalization'
   | 'widgets'
+  | 'dock'
+  | 'layout'
   | 'users'
   | 'network'
   | 'services'
@@ -139,6 +143,12 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         </button>
         <button className={`set-nav ${tab === 'widgets' ? 'active' : ''}`} onClick={() => setTab('widgets')}>
           <LayoutGrid size={14} strokeWidth={2} /> Widgets
+        </button>
+        <button className={`set-nav ${tab === 'dock' ? 'active' : ''}`} onClick={() => setTab('dock')}>
+          <Anchor size={14} strokeWidth={2} /> Dock
+        </button>
+        <button className={`set-nav ${tab === 'layout' ? 'active' : ''}`} onClick={() => setTab('layout')}>
+          <Layout size={14} strokeWidth={2} /> Layout
         </button>
 
         <div className="set-nav-group">System</div>
@@ -185,6 +195,8 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         <TabErrorBoundary key={tab}>
           {tab === 'personalization' && <PersonalizationTab />}
           {tab === 'widgets' && <WidgetsTab />}
+          {tab === 'dock' && <DockTab />}
+          {tab === 'layout' && <LayoutTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'network' && <NetworkTab />}
           {tab === 'services' && <ServicesTab />}
@@ -196,6 +208,174 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           {tab === 'timemachine' && <TimeMachineTab />}
           {tab === 'about' && <AboutTab />}
         </TabErrorBoundary>
+      </div>
+    </div>
+  )
+}
+
+// ── Dock Tab ──────────────────────────────────────────────────────
+
+const ALL_DOCK_APPS: { id: string; label: string }[] = [
+  { id: 'file-manager',     label: 'File Manager' },
+  { id: 'storage-manager',  label: 'Storage' },
+  { id: 'share-manager',    label: 'Shares' },
+  { id: 'user-manager',     label: 'Users' },
+  { id: 'docker-manager',   label: 'Docker' },
+  { id: 'network-settings', label: 'Network' },
+  { id: 'system-monitor',   label: 'Monitor' },
+  { id: 'backup-manager',   label: 'Backups' },
+  { id: 'log-viewer',       label: 'Logs' },
+  { id: 'terminal',          label: 'Terminal' },
+  { id: 'system-updates',   label: 'Updates' },
+  { id: 'settings',         label: 'Settings' },
+  { id: 'personalization',  label: 'Personalization' },
+]
+
+function DockTab() {
+  const items = useDockStore((s) => s.items)
+  const iconSize = useDockStore((s) => s.iconSize)
+  const magnification = useDockStore((s) => s.magnification)
+  const { addItem, removeItem, moveItem, setIconSize, setMagnification } = useDockStore()
+
+  const available = ALL_DOCK_APPS.filter((app) => !items.includes(app.id))
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header"><h3>Dock Icons</h3></div>
+      <p className="set-desc">Drag to reorder. The dock appears on the desktop for quick app access.</p>
+
+      <div className="set-card" style={{ marginBottom: 16 }}>
+        {items.length === 0 && <p className="set-desc">No icons in dock. Add some below.</p>}
+        {items.map((appId) => {
+          const meta = ALL_DOCK_APPS.find((a) => a.id === appId)
+          return (
+            <div key={appId} className="set-row" style={{ gap: 8 }}>
+              <GripVertical size={14} style={{ opacity: 0.3 }} />
+              <span style={{ flex: 1 }}>{meta?.label ?? appId}</span>
+              <button className="set-btn-sm" onClick={() => moveItem(appId, 'left')} title="Move left">
+                <ChevronUp size={14} />
+              </button>
+              <button className="set-btn-sm" onClick={() => moveItem(appId, 'right')} title="Move right">
+                <ChevronDown size={14} />
+              </button>
+              <button className="set-btn-sm" style={{ color: '#ff5252' }} onClick={() => removeItem(appId)} title="Remove">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {available.length > 0 && (
+        <>
+          <div className="set-section-header"><h3>Available Apps</h3></div>
+          <div className="set-card">
+            {available.map((app) => (
+              <div key={app.id} className="set-row">
+                <span style={{ flex: 1 }}>{app.label}</span>
+                <button className="set-btn" onClick={() => addItem(app.id)}>
+                  <Plus size={12} /> Add
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="set-section-header" style={{ marginTop: 24 }}><h3>Dock Appearance</h3></div>
+      <div className="set-card">
+        <div className="set-row">
+          <span>Icon Size</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="range"
+              min={32} max={72} step={4}
+              value={iconSize}
+              onChange={(e) => setIconSize(Number(e.target.value))}
+            />
+            <span style={{ fontSize: 12, minWidth: 30 }}>{iconSize}px</span>
+          </div>
+        </div>
+        <div className="set-row">
+          <span>Magnification</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="range"
+              min={1} max={2.5} step={0.1}
+              value={magnification}
+              onChange={(e) => setMagnification(Number(e.target.value))}
+            />
+            <span style={{ fontSize: 12, minWidth: 30 }}>{magnification.toFixed(1)}×</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Layout Tab ────────────────────────────────────────────────────
+
+const EDGE_OPTIONS: { value: ScreenEdge; label: string }[] = [
+  { value: 'top',    label: 'Top' },
+  { value: 'bottom', label: 'Bottom' },
+  { value: 'left',   label: 'Left' },
+  { value: 'right',  label: 'Right' },
+]
+
+function LayoutTab() {
+  const taskbarPosition = useLayoutStore((s) => s.taskbarPosition)
+  const dockPosition = useLayoutStore((s) => s.dockPosition)
+  const { setTaskbarPosition, setDockPosition } = useLayoutStore()
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header"><h3>Screen Layout</h3></div>
+      <p className="set-desc">
+        Choose which edge of the screen the taskbar and dock are placed on.
+        When the taskbar is on the left or right, window buttons show icons only (no text).
+      </p>
+
+      <div className="set-card">
+        <div className="set-row">
+          <span>Taskbar Position</span>
+          <div className="set-edge-picker">
+            {EDGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={`set-edge-btn ${taskbarPosition === opt.value ? 'set-edge-btn--active' : ''}`}
+                onClick={() => setTaskbarPosition(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="set-row">
+          <span>Dock Position</span>
+          <div className="set-edge-picker">
+            {EDGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={`set-edge-btn ${dockPosition === opt.value ? 'set-edge-btn--active' : ''}`}
+                onClick={() => setDockPosition(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Visual preview of current layout */}
+      <div className="set-section-header" style={{ marginTop: 24 }}><h3>Preview</h3></div>
+      <div className="layout-preview">
+        <div className={`layout-preview-bar layout-bar--taskbar layout-bar--${taskbarPosition}`}>
+          <span>Taskbar</span>
+        </div>
+        <div className={`layout-preview-bar layout-bar--dock layout-bar--${dockPosition}`}>
+          <span>Dock</span>
+        </div>
+        <div className="layout-preview-desktop">Desktop</div>
       </div>
     </div>
   )

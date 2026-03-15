@@ -2,16 +2,26 @@ import { useEffect, useRef } from 'react'
 import { api } from './useApi'
 import { useSystemStore } from '../store/systemStore'
 import { useWidgetStore } from '../store/widgetStore'
+import { useDockStore } from '../store/dockStore'
+import { useLayoutStore } from '../store/layoutStore'
 
 const LS_DESKTOP = 'nasos-desktop-state'
 
 interface DesktopState {
   wallpaper: string | null
-  icon_positions: Record<string, { x: number; y: number }> | null
   widgets: {
     enabledWidgets: string[]
     customWidgets: any[]
     widgetConfig: Record<string, any>
+  } | null
+  dock: {
+    items: string[]
+    iconSize: number
+    magnification: number
+  } | null
+  layout: {
+    taskbarPosition: 'top' | 'bottom' | 'left' | 'right'
+    dockPosition: 'top' | 'bottom' | 'left' | 'right'
   } | null
 }
 
@@ -41,7 +51,7 @@ export function loadCachedDesktopState(): DesktopState {
     const raw = localStorage.getItem(LS_DESKTOP)
     if (raw) return JSON.parse(raw)
   } catch { /* ignore */ }
-  return { wallpaper: null, icon_positions: null, widgets: null }
+  return { wallpaper: null, widgets: null, dock: null, layout: null }
 }
 
 // ── Debounced backend persistence ─────────────────────────────────
@@ -99,11 +109,6 @@ export function applyDesktopState(data: DesktopState | any) {
       }
     }
 
-    if (data.icon_positions) {
-      localStorage.setItem('nasos-desktop-icon-positions', JSON.stringify(data.icon_positions))
-      window.dispatchEvent(new CustomEvent('nasos:icon-positions-updated', { detail: data.icon_positions }))
-    }
-
     if (data.widgets) {
       const ws = useWidgetStore.getState()
       const w = data.widgets
@@ -121,6 +126,19 @@ export function applyDesktopState(data: DesktopState | any) {
         }
       }
       if (w.widgetConfig) ws.updateWidgetConfig(w.widgetConfig)
+    }
+
+    if (data.dock) {
+      const ds = useDockStore.getState()
+      if (data.dock.items) ds.setItems(data.dock.items)
+      if (data.dock.iconSize != null) ds.setIconSize(data.dock.iconSize)
+      if (data.dock.magnification != null) ds.setMagnification(data.dock.magnification)
+    }
+
+    if (data.layout) {
+      const ls = useLayoutStore.getState()
+      if (data.layout.taskbarPosition) ls.setTaskbarPosition(data.layout.taskbarPosition)
+      if (data.layout.dockPosition) ls.setDockPosition(data.layout.dockPosition)
     }
 
     const cleaned = { ...data }
@@ -199,6 +217,44 @@ export function useDesktopSync() {
             enabledWidgets: state.enabledWidgets,
             customWidgets: state.customWidgets,
             widgetConfig: state.widgetConfig,
+          },
+        })
+      }
+    })
+  }, [])
+
+  // Subscribe to dock changes and persist to backend
+  useEffect(() => {
+    return useDockStore.subscribe((state, prev) => {
+      if (!isDesktopSyncReady()) return
+      if (
+        state.items !== prev.items ||
+        state.iconSize !== prev.iconSize ||
+        state.magnification !== prev.magnification
+      ) {
+        persistDesktopToBackend({
+          dock: {
+            items: state.items,
+            iconSize: state.iconSize,
+            magnification: state.magnification,
+          },
+        })
+      }
+    })
+  }, [])
+
+  // Subscribe to layout changes and persist to backend
+  useEffect(() => {
+    return useLayoutStore.subscribe((state, prev) => {
+      if (!isDesktopSyncReady()) return
+      if (
+        state.taskbarPosition !== prev.taskbarPosition ||
+        state.dockPosition !== prev.dockPosition
+      ) {
+        persistDesktopToBackend({
+          layout: {
+            taskbarPosition: state.taskbarPosition,
+            dockPosition: state.dockPosition,
           },
         })
       }

@@ -155,6 +155,7 @@ export function Window({ window: win, onSnapPreview, children }: WindowProps) {
       className="window"
       style={style}
       onMouseDown={() => focusWindow(win.id)}
+      data-window-id={win.id}
       data-focused={isFocused}
       data-dragging={isDragging}
       data-resizing={isResizing}

@@ -11,6 +11,7 @@ import { useAuthStore } from '../store/authStore'
 import { NotificationCenter } from './NotificationCenter'
 import { PowerModal } from './PowerModal'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { WindowPreviewPopup, useWindowPreviewHover } from './WindowPreview'
 
 const APP_ICONS: Record<string, LucideIcon> = {
   'file-manager': FolderOpen,
@@ -54,6 +55,7 @@ export function Taskbar() {
   const [taskCtx, setTaskCtx] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
+  const { preview: taskPreview, onEnter: onTaskEnter, onLeave: onTaskLeave } = useWindowPreviewHover()
 
   // Clock
   useEffect(() => {
@@ -185,9 +187,12 @@ export function Taskbar() {
               data-focused={isFocused && !win.isMinimized}
               data-minimized={win.isMinimized}
               onClick={() => handleTaskClick(win.id, win.isMinimized, isFocused)}
+              onMouseEnter={(e) => onTaskEnter(e, win.id, win.title, win.isMinimized)}
+              onMouseLeave={onTaskLeave}
               onContextMenu={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                onTaskLeave()
                 setTaskCtx({
                   x: e.clientX,
                   y: e.clientY,
@@ -255,6 +260,16 @@ export function Taskbar() {
           onClose={() => setTaskCtx(null)}
         />,
         document.body
+      )}
+
+      {/* Window preview on hover */}
+      {taskPreview && (
+        <WindowPreviewPopup
+          windowId={taskPreview.windowId}
+          title={taskPreview.title}
+          anchorRect={taskPreview.anchorRect}
+          isMinimized={taskPreview.isMinimized}
+        />
       )}
     </div>
   )

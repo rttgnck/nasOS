@@ -28,8 +28,10 @@ import { ToastContainer } from './ToastContainer'
 import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
 import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
 import { OnScreenKeyboard } from './OnScreenKeyboard'
+import { Dock } from './Dock'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useDesktopSync } from '../hooks/useDesktopSync'
+import { useLayoutStore } from '../store/layoutStore'
 
 export function Desktop() {
   useMetricsWebSocket()
@@ -120,10 +122,12 @@ export function Desktop() {
   }
 
   const wallpaper = useSystemStore((s) => s.wallpaper)
+  const taskbarPosition = useLayoutStore((s) => s.taskbarPosition)
 
   return (
     <div
       className="desktop"
+      data-taskbar={taskbarPosition}
       onContextMenu={handleDesktopContextMenu}
       style={wallpaper ? { backgroundImage: `url(${wallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     >
@@ -152,6 +156,7 @@ export function Desktop() {
       <ChangePasswordModal />
       <FileOpsModal />
       <OnScreenKeyboard />
+      <Dock />
       <Taskbar />
     </div>
   )

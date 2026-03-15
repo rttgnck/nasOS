@@ -39,6 +39,14 @@ export type ThemeVar =
   | 'osk-key-hover'
   | 'osk-key-active'
   | 'osk-key-radius'
+  | 'dock-bg'
+  | 'dock-blur'
+  | 'dock-alpha'
+  | 'dock-radius'
+  | 'dock-icon-bg'
+  | 'dock-icon-hover'
+  | 'dock-icon-active'
+  | 'dock-icon-radius'
 
 export const THEME_VAR_META: {
   key: ThemeVar
@@ -84,6 +92,14 @@ export const THEME_VAR_META: {
   { key: 'osk-key-hover',        label: 'Key Hover',            type: 'color',  group: 'Keyboard' },
   { key: 'osk-key-active',       label: 'Key Active/Pressed',   type: 'color',  group: 'Keyboard' },
   { key: 'osk-key-radius',       label: 'Key Border Radius',    type: 'text',   group: 'Keyboard' },
+  { key: 'dock-bg',              label: 'Dock Background',      type: 'color',  group: 'Dock' },
+  { key: 'dock-blur',            label: 'Dock Blur',            type: 'slider', group: 'Dock', sliderMin: 0, sliderMax: 64, sliderStep: 1, sliderUnit: 'px' },
+  { key: 'dock-alpha',           label: 'Dock Opacity',         type: 'slider', group: 'Dock', sliderMin: 0, sliderMax: 1, sliderStep: 0.01, sliderUnit: '' },
+  { key: 'dock-radius',          label: 'Dock Radius',          type: 'text',   group: 'Dock' },
+  { key: 'dock-icon-bg',         label: 'Icon Background',      type: 'color',  group: 'Dock' },
+  { key: 'dock-icon-hover',      label: 'Icon Hover',           type: 'color',  group: 'Dock' },
+  { key: 'dock-icon-active',     label: 'Icon Active',          type: 'color',  group: 'Dock' },
+  { key: 'dock-icon-radius',     label: 'Icon Radius',          type: 'text',   group: 'Dock' },
 ]
 
 // ── Theme Definition ───────────────────────────────────────────────
@@ -137,6 +153,14 @@ export const DEFAULT_THEME: Theme = {
     'osk-key-hover':              'rgba(255, 255, 255, 0.14)',
     'osk-key-active':             '#e94560',
     'osk-key-radius':             '4px',
+    'dock-bg':                    '#0a0a1a',
+    'dock-blur':                  '0px',
+    'dock-alpha':                 '1',
+    'dock-radius':                '14px',
+    'dock-icon-bg':               'rgba(255, 255, 255, 0.06)',
+    'dock-icon-hover':            'rgba(255, 255, 255, 0.12)',
+    'dock-icon-active':           'rgba(255, 255, 255, 0.18)',
+    'dock-icon-radius':           '10px',
   },
 }
 
@@ -180,6 +204,14 @@ export const LIQUID_GLASS_THEME: Theme = {
     'osk-key-hover':              'rgba(255, 255, 255, 0.12)',
     'osk-key-active':             '#4fc3f7',
     'osk-key-radius':             '7px',
+    'dock-bg':                    '#04070f',
+    'dock-blur':                  '28px',
+    'dock-alpha':                 '0.48',
+    'dock-radius':                '18px',
+    'dock-icon-bg':               'rgba(255, 255, 255, 0.04)',
+    'dock-icon-hover':            'rgba(255, 255, 255, 0.10)',
+    'dock-icon-active':           'rgba(255, 255, 255, 0.16)',
+    'dock-icon-radius':           '12px',
   },
 }
 

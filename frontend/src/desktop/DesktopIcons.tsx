@@ -4,7 +4,6 @@ import {
   FolderOpen, HardDrive, Share2, Box, Activity, Archive, Settings, RefreshCw, TerminalSquare,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
-import { persistDesktopToBackend, isDesktopSyncReady } from '../hooks/useDesktopSync'
 
 interface DesktopIcon {
   id: string
@@ -90,34 +89,11 @@ export function DesktopIcons() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const dragStart = useRef<{ x: number; y: number; iconX: number; iconY: number } | null>(null)
-  const isRemoteUpdateRef = useRef(false)
 
-  // Save positions to localStorage always; persist to backend only for local user-initiated changes
+  // Persist to localStorage only (icon positions are per-device, not synced)
   useEffect(() => {
     savePositions(positions)
-    if (!isRemoteUpdateRef.current && isDesktopSyncReady()) {
-      persistDesktopToBackend({ icon_positions: positions })
-    }
-    isRemoteUpdateRef.current = false
   }, [positions])
-
-  // Listen for remote icon position updates via WebSocket
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as Record<string, IconPosition>
-      if (!detail) return
-      isRemoteUpdateRef.current = true
-      const defaults = getDefaultPositions()
-      const merged = { ...defaults, ...detail }
-      const corrected: Record<string, IconPosition> = {}
-      for (const [id, pos] of Object.entries(merged)) {
-        corrected[id] = clampPosition(snapToGrid(pos.x, pos.y))
-      }
-      setPositions(corrected)
-    }
-    window.addEventListener('nasos:icon-positions-updated', handler)
-    return () => window.removeEventListener('nasos:icon-positions-updated', handler)
-  }, [])
 
   // On resize, re-validate that no icon overlaps the taskbar
   useEffect(() => {
