@@ -101,6 +101,38 @@ async def rollback():
         raise HTTPException(404, str(exc)) from exc
 
 
+@router.get("/check")
+async def check_for_updates():
+    """Check the GitHub releases page for a new .nasos update."""
+    try:
+        return await update_service.check_github_release()
+    except Exception as exc:
+        raise HTTPException(502, f"Failed to check for updates: {exc}") from exc
+
+
+@router.post("/download")
+async def download_update(body: dict):
+    """Download a .nasos update from a GitHub release asset URL."""
+    url = body.get("download_url", "")
+    filename = body.get("filename", "update.nasos")
+    if not url:
+        raise HTTPException(400, "download_url is required")
+
+    free_mb = update_service.get_free_mb()
+    if free_mb != -1 and free_mb < _MIN_FREE_MB_FOR_UPLOAD:
+        raise HTTPException(
+            507,
+            f"Insufficient disk space: {free_mb} MB free, {_MIN_FREE_MB_FOR_UPLOAD} MB needed.",
+        )
+
+    try:
+        return await update_service.download_github_release(url, filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"Download failed: {exc}") from exc
+
+
 @router.delete("/rollback")
 async def delete_rollback_snapshot():
     """

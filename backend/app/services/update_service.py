@@ -5,6 +5,7 @@ Handles validation, staging, and progress tracking for OTA updates.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import shutil
@@ -12,6 +13,10 @@ import subprocess
 import tarfile
 from pathlib import Path
 from typing import Any
+
+import httpx
+
+log = logging.getLogger(__name__)
 
 _is_linux = platform.system() == "Linux"
 
@@ -411,3 +416,105 @@ def rollback_update() -> dict[str, str]:
         "status": "rolled_back",
         "version": manifest.get("version", "unknown"),
     }
+
+
+# ── GitHub release checking ───────────────────────────────────────────────────
+
+_GITHUB_REPO = "rttgnck/nasOS-test"
+_GITHUB_API = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+
+
+async def check_github_release() -> dict[str, Any]:
+    """Check the latest GitHub release for a .nasos update asset."""
+    current = _current_version()
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                _GITHUB_API,
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            resp.raise_for_status()
+            release = resp.json()
+    except Exception as exc:
+        log.warning("Failed to check GitHub releases: %s", exc)
+        return {
+            "current_version": current,
+            "update_available": False,
+            "error": str(exc),
+        }
+
+    tag = release.get("tag_name", "")
+    release_version = tag.lstrip("v")
+    release_name = release.get("name", tag)
+    published_at = release.get("published_at", "")
+    body = release.get("body", "")
+
+    nasos_asset = None
+    for asset in release.get("assets", []):
+        if asset.get("name", "").endswith(".nasos"):
+            nasos_asset = {
+                "name": asset["name"],
+                "size_bytes": asset.get("size", 0),
+                "download_url": asset.get("browser_download_url", ""),
+            }
+            break
+
+    update_available = (
+        nasos_asset is not None
+        and release_version != current
+    )
+
+    return {
+        "current_version": current,
+        "update_available": update_available,
+        "latest_version": release_version,
+        "release_name": release_name,
+        "published_at": published_at,
+        "changelog": body,
+        "asset": nasos_asset,
+    }
+
+
+async def download_github_release(download_url: str, filename: str) -> dict[str, Any]:
+    """Download a .nasos asset from GitHub and stage it."""
+    _STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = _STAGING_DIR / f"github-dl-{os.getpid()}.tmp"
+    tmp_path.unlink(missing_ok=True)
+
+    try:
+        async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+            async with client.stream("GET", download_url) as resp:
+                resp.raise_for_status()
+                total = 0
+                with open(str(tmp_path), "wb") as f:
+                    async for chunk in resp.aiter_bytes(65536):
+                        f.write(chunk)
+                        total += len(chunk)
+                        if total > _MAX_UPLOAD_BYTES:
+                            raise ValueError(
+                                f"Package exceeds maximum size ({_MAX_UPLOAD_MB} MB)"
+                            )
+
+        try:
+            manifest = _read_manifest(tmp_path)
+        except Exception as exc:
+            raise ValueError(f"Invalid package: {exc}") from exc
+
+        _PENDING_FILE.unlink(missing_ok=True)
+        tmp_path.rename(_PENDING_FILE)
+        _PROGRESS_FILE.unlink(missing_ok=True)
+
+        size = _PENDING_FILE.stat().st_size
+        return {
+            "status": "staged",
+            "package": {
+                "version": manifest.get("version"),
+                "built_at": manifest.get("built_at"),
+                "components": manifest.get("components", []),
+                "size_bytes": size,
+            },
+        }
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise

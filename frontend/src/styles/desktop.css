@@ -1527,8 +1527,119 @@
 
 .mv-video-content video {
   width: 100%;
-  height: 100%;
+  height: calc(100% - 40px);
   object-fit: contain;
+  cursor: pointer;
+}
+
+/* ── Custom video controls ── */
+.mv-custom-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 3;
+}
+
+.mv-ctrl-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.mv-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.mv-time-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  min-width: 38px;
+  text-align: center;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.mv-progress-bar {
+  flex: 1;
+  height: 14px;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.mv-progress-total {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.mv-progress-buffered {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.3);
+  transition: width 0.3s ease;
+  pointer-events: none;
+}
+
+.mv-progress-played {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-accent, #e94560);
+  pointer-events: none;
+}
+
+.mv-progress-thumb {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.mv-progress-bar:hover .mv-progress-thumb {
+  opacity: 1;
+}
+
+.mv-progress-bar:hover .mv-progress-total {
+  height: 6px;
+}
+
+.mv-progress-bar:hover .mv-progress-buffered {
+  height: 6px;
+}
+
+.mv-progress-bar:hover .mv-progress-played {
+  height: 6px;
 }
 
 .mv-transcode-indicator {
@@ -6447,4 +6558,170 @@
 .wgt-template-card:hover {
   border-color: var(--color-accent, #e94560);
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* ===== About Tab ===== */
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 24px;
+  margin-bottom: 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.about-logo {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.about-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #ccd6f6;
+  margin: 0;
+}
+
+.about-version {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-accent, #e94560);
+  margin-top: 2px;
+  font-family: monospace;
+}
+
+.about-tagline {
+  font-size: 13px;
+  color: #5a6785;
+  margin-top: 4px;
+}
+
+.about-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #ccd6f6;
+}
+
+.about-card-text { flex: 1; }
+.about-card-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.about-card-desc { font-size: 12px; color: #5a6785; }
+
+.about-donate-btn {
+  background: rgba(255, 183, 77, 0.12) !important;
+  border-color: rgba(255, 183, 77, 0.3) !important;
+  color: #ffb74d !important;
+}
+
+.about-donate-btn:hover {
+  background: rgba(255, 183, 77, 0.2) !important;
+}
+
+/* ===== GitHub Release Check ===== */
+.upd-gh-release {
+  margin-top: 10px;
+  padding: 16px 18px;
+  border: 1px solid rgba(100, 120, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(100, 120, 255, 0.04);
+}
+
+.upd-gh-release-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #8892ff;
+}
+
+.upd-gh-release-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ccd6f6;
+}
+
+.upd-gh-release-date {
+  font-size: 12px;
+  color: #5a6785;
+  margin-left: auto;
+}
+
+.upd-gh-changelog {
+  font-size: 12px;
+  color: #8892b0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.upd-gh-release-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upd-gh-asset-info {
+  font-size: 12px;
+  color: #5a6785;
+  font-family: monospace;
+}
+
+/* ===== Restart Modal ===== */
+.upd-restart-modal {
+  background: var(--color-bg-window, #0a0a1a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 40px 48px;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.upd-restart-spinner {
+  color: #4fc3f7;
+  margin-bottom: 16px;
+}
+
+.upd-restart-check {
+  color: #66bb6a;
+  margin-bottom: 16px;
+}
+
+.upd-restart-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ccd6f6;
+  margin: 0 0 8px;
+}
+
+.upd-restart-desc {
+  font-size: 13px;
+  color: #8892b0;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.upd-restart-hint {
+  font-size: 11px;
+  color: #ffa726;
+  margin-top: 16px;
 }

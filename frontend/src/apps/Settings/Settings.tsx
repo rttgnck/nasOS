@@ -2,9 +2,10 @@ import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Activity, AlertTriangle, BatteryCharging, Box, Check, ChevronDown, ChevronUp, Clock,
-  Code, Copy, Cpu, Download, Globe, HardDrive, Info, LayoutGrid, Lock, LockOpen,
-  Monitor, Network, Package, Palette, Pencil, Plug, Plus, Printer, Radio, RotateCcw, Shield,
-  Smartphone, Thermometer, Trash2, Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
+  Code, Coffee, Copy, Cpu, Download, ExternalLink, Github, Globe, HardDrive, Heart, Info,
+  LayoutGrid, Loader, Lock, LockOpen, Monitor, Network, Package, Palette, Pencil, Plug,
+  Plus, Printer, Radio, RefreshCw, RotateCcw, Shield, Smartphone, Thermometer, Trash2,
+  Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
 } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
@@ -120,6 +121,7 @@ type SettingsTab =
   | 'updates'
   | 'avahi'
   | 'timemachine'
+  | 'about'
 
 export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
   const [tab, setTab] = useState<SettingsTab>(initialTab || 'security')
@@ -173,6 +175,11 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         <button className={`set-nav ${tab === 'timemachine' ? 'active' : ''}`} onClick={() => setTab('timemachine')}>
           <Clock size={14} strokeWidth={2} /> Time Machine
         </button>
+
+        <div className="set-nav-group">About</div>
+        <button className={`set-nav ${tab === 'about' ? 'active' : ''}`} onClick={() => setTab('about')}>
+          <Info size={14} strokeWidth={2} /> About nasOS
+        </button>
       </div>
       <div className="set-content">
         <TabErrorBoundary key={tab}>
@@ -187,6 +194,7 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           {tab === 'updates' && <UpdatesTab />}
           {tab === 'avahi' && <AvahiTab />}
           {tab === 'timemachine' && <TimeMachineTab />}
+          {tab === 'about' && <AboutTab />}
         </TabErrorBoundary>
       </div>
     </div>
@@ -1218,6 +1226,17 @@ function fmtBytes(b: number) {
   return `${(b / (1024 * 1024)).toFixed(1)} MB`
 }
 
+interface GitHubRelease {
+  current_version: string
+  update_available: boolean
+  latest_version?: string
+  release_name?: string
+  published_at?: string
+  changelog?: string
+  asset?: { name: string; size_bytes: number; download_url: string }
+  error?: string
+}
+
 function UpdatesTab() {
   const [status, setStatus] = useState<OtaStatus | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -1229,25 +1248,24 @@ function UpdatesTab() {
   const [rebootCountdown, setRebootCountdown] = useState<number | null>(null)
   const [clearingRollback, setClearingRollback] = useState(false)
   const [clearRollbackMsg, setClearRollbackMsg] = useState('')
+  const [ghRelease, setGhRelease] = useState<GitHubRelease | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [showRestartModal, setShowRestartModal] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const errCountRef = useRef(0)
   const countdownStartedRef = useRef(false)
 
   // ── polling ──────────────────────────────────────────────────
-  // Always poll every 1.5 s while the tab is open.
-  // This means the UI automatically picks up an in-progress update even if the
-  // user opens Settings > Updates after apply was already started (e.g. after a
-  // backend restart), without needing any manual refresh.
   const loadStatus = useCallback(async () => {
     try {
       const s = await api<OtaStatus>('/api/update/status')
+      const wasReconnecting = errCountRef.current >= 2
       errCountRef.current = 0
       setReconnecting(false)
       setStatus(s)
-      // If we detect a running update we weren't tracking yet, enter applying state
       if (s.progress?.status === 'running') setApplying(true)
-      // Start reboot countdown when phase transitions to rebooting
       if (s.progress?.status === 'rebooting' && !countdownStartedRef.current) {
         countdownStartedRef.current = true
         setRebootCountdown(5)
@@ -1258,14 +1276,19 @@ function UpdatesTab() {
           })
         }, 1000)
       }
-      // Clear applying when done
       if (s.progress?.status === 'complete' || s.progress?.status === 'error') {
         setApplying(false)
       }
+      // Backend came back online after being unreachable — show restart modal with reload button
+      if (wasReconnecting && s.progress?.status === 'complete') {
+        setShowRestartModal(true)
+      }
     } catch {
-      // Backend is restarting — count consecutive failures before showing indicator
       errCountRef.current += 1
-      if (errCountRef.current >= 2) setReconnecting(true)
+      if (errCountRef.current >= 2) {
+        setReconnecting(true)
+        setShowRestartModal(true)
+      }
     }
   }, [])
 
@@ -1274,6 +1297,38 @@ function UpdatesTab() {
     pollRef.current = setInterval(loadStatus, 1500)
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [loadStatus])
+
+  // ── GitHub release check ────────────────────────────────────
+  const checkForUpdates = async () => {
+    setChecking(true)
+    try {
+      const r = await api<GitHubRelease>('/api/update/check')
+      setGhRelease(r)
+    } catch {
+      setGhRelease({ current_version: '', update_available: false, error: 'Failed to reach update server' })
+    }
+    setChecking(false)
+  }
+
+  const handleDownloadRelease = async () => {
+    if (!ghRelease?.asset) return
+    setDownloading(true)
+    setUploadErr('')
+    try {
+      await api('/api/update/download', {
+        method: 'POST',
+        body: JSON.stringify({
+          download_url: ghRelease.asset.download_url,
+          filename: ghRelease.asset.name,
+        }),
+      })
+      await loadStatus()
+      setGhRelease(null)
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : 'Download failed')
+    }
+    setDownloading(false)
+  }
 
   // ── upload ───────────────────────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
@@ -1444,7 +1499,7 @@ function UpdatesTab() {
         )}
       </div>
 
-      {/* ── Reboot countdown (shown for 5 s before the device goes down) ── */}
+      {/* ── Reboot countdown ── */}
       {isRebooting && !reconnecting && (
         <div className="upd-reboot-banner">
           <div className="upd-reboot-icon">&#8635;</div>
@@ -1455,14 +1510,6 @@ function UpdatesTab() {
             )}
           </div>
           <div className="upd-reboot-sub">Do not power off. The page will reconnect automatically.</div>
-        </div>
-      )}
-
-      {/* ── Reconnecting (device is offline after reboot) ── */}
-      {reconnecting && (
-        <div className="upd-reconnecting">
-          <span className="upd-reconnect-spin">↻</span>
-          Reconnecting — waiting for device to come back online…
         </div>
       )}
 
@@ -1483,14 +1530,7 @@ function UpdatesTab() {
         </div>
       )}
 
-      {/* ── Complete / error result ── */}
-      {!isBusy && progress?.status === 'complete' && (
-        <div className="upd-result upd-result-ok">
-          Update to v{staged?.version || current_version} applied successfully.
-          <button className="set-btn" style={{ marginLeft: 12 }}
-            onClick={() => window.location.reload()}>Reload UI</button>
-        </div>
-      )}
+      {/* ── Error result ── */}
       {!isBusy && progress?.status === 'error' && (
         <div className="upd-result upd-result-err">Update failed: {progress.message}</div>
       )}
@@ -1529,9 +1569,67 @@ function UpdatesTab() {
         </>
       )}
 
-      {/* ── Upload drop zone ── */}
+      {/* ── Check for Updates / Upload ── */}
       {!displayStaged && !isBusy && (
         <>
+          {/* GitHub release check */}
+          <div className="set-section-header" style={{ marginTop: 20 }}>
+            <h3>Check for Updates</h3>
+            <button className="set-btn" onClick={checkForUpdates} disabled={checking || downloading}>
+              {checking ? (
+                <><Loader size={13} className="mv-spinner" /> Checking…</>
+              ) : (
+                <><RefreshCw size={13} /> Check Now</>
+              )}
+            </button>
+          </div>
+
+          {ghRelease && !ghRelease.error && ghRelease.update_available && ghRelease.asset && (
+            <div className="upd-gh-release">
+              <div className="upd-gh-release-header">
+                <Package size={16} />
+                <span className="upd-gh-release-title">
+                  {ghRelease.release_name || `v${ghRelease.latest_version}`}
+                </span>
+                <span className="upd-gh-release-date">
+                  {ghRelease.published_at ? new Date(ghRelease.published_at).toLocaleDateString() : ''}
+                </span>
+              </div>
+              {ghRelease.changelog && (
+                <div className="upd-gh-changelog">{ghRelease.changelog}</div>
+              )}
+              <div className="upd-gh-release-footer">
+                <span className="upd-gh-asset-info">
+                  {ghRelease.asset.name} ({fmtBytes(ghRelease.asset.size_bytes)})
+                </span>
+                <button
+                  className="set-btn set-btn-primary"
+                  onClick={handleDownloadRelease}
+                  disabled={downloading}
+                >
+                  {downloading ? (
+                    <><Loader size={13} className="mv-spinner" /> Downloading…</>
+                  ) : (
+                    <><Download size={13} /> Download Update</>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {ghRelease && !ghRelease.error && !ghRelease.update_available && (
+            <div className="upd-result upd-result-ok" style={{ marginTop: 8 }}>
+              <Check size={14} style={{ marginRight: 8 }} /> You're running the latest version.
+            </div>
+          )}
+
+          {ghRelease?.error && (
+            <div className="upd-result upd-result-err" style={{ marginTop: 8 }}>
+              {ghRelease.error}
+            </div>
+          )}
+
+          {/* Manual upload */}
           <div className="set-section-header" style={{ marginTop: 20 }}><h3>Upload Update Package</h3></div>
           {uploadErr && <div className="upd-result upd-result-err" style={{ marginBottom: 10 }}>{uploadErr}</div>}
           <div
@@ -1597,12 +1695,52 @@ function UpdatesTab() {
             <div className="shr-wizard-body">
               <p>This will install <strong>v{displayStaged.version}</strong> and reboot the device to apply changes.</p>
               <p>Components: {displayStaged.components.join(', ')}</p>
-              <p style={{ color: '#ffa726', marginTop: 8 }}>⚠️ The device will be unreachable for ~60 seconds while it reboots.</p>
+              <p style={{ color: '#ffa726', marginTop: 8 }}>The device will be unreachable for ~60 seconds while it reboots.</p>
             </div>
             <div className="shr-wizard-footer">
               <button className="shr-btn" onClick={() => setConfirm(false)}>Cancel</button>
               <button className="shr-btn shr-btn-primary" onClick={handleApply}>Apply Now</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Waiting for Restart Modal ── */}
+      {showRestartModal && (
+        <div className="shr-overlay">
+          <div className="upd-restart-modal">
+            {reconnecting ? (
+              <>
+                <div className="upd-restart-spinner">
+                  <Loader size={36} className="mv-spinner" />
+                </div>
+                <h3 className="upd-restart-title">Waiting for Restart</h3>
+                <p className="upd-restart-desc">
+                  The device is restarting to apply updates. This page will automatically detect when it comes back online.
+                </p>
+                <div className="upd-restart-hint">Do not power off the device.</div>
+              </>
+            ) : (
+              <>
+                <div className="upd-restart-check">
+                  <Check size={36} />
+                </div>
+                <h3 className="upd-restart-title">Update Applied Successfully</h3>
+                <p className="upd-restart-desc">
+                  {staged?.version
+                    ? `v${staged.version} has been installed.`
+                    : 'The update has been installed.'}
+                  {' '}Reload the UI to apply the new frontend.
+                </p>
+                <button
+                  className="set-btn set-btn-primary"
+                  style={{ marginTop: 16, padding: '10px 28px' }}
+                  onClick={() => window.location.reload()}
+                >
+                  Reload UI
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2520,6 +2658,84 @@ function WidgetsTab() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── About Tab ───────────────────────────────────────────────────
+
+function AboutTab() {
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    api<{ current_version: string }>('/api/update/status')
+      .then((s) => setVersion(s.current_version))
+      .catch(() => {})
+  }, [])
+
+  return (
+    <div className="set-tab-content">
+      <div className="about-hero">
+        <img src="/nasos-logo.svg" alt="nasOS" className="about-logo" />
+        <div className="about-hero-text">
+          <h2 className="about-title">nasOS</h2>
+          <div className="about-version">
+            {version ? `v${version}` : '...'}
+          </div>
+          <div className="about-tagline">A modern, lightweight NAS operating system. Complete with remote desktop environment and desktop for connected displays.</div>
+        </div>
+      </div>
+
+      <div className="about-section">
+        <div className="about-card">
+          <Github size={18} />
+          <div className="about-card-text">
+            <div className="about-card-title">Open Source (non-commercial use only)</div>
+            <div className="about-card-desc">
+              Made by <strong>rttgnck</strong> — source code and releases available on GitHub. Commercial use requires permission.
+            </div>
+          </div>
+          <a
+            href="https://github.com/rttgnck/nasOS"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="set-btn"
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <ExternalLink size={13} /> GitHub
+          </a>
+        </div>
+
+        <div className="about-card about-card-donate">
+          <Coffee size={18} />
+          <div className="about-card-text">
+            <div className="about-card-title">Support Development</div>
+            <div className="about-card-desc">
+              If you find nasOS useful, consider supporting the development!
+            </div>
+          </div>
+          <a
+            href="https://buymeacoffee.com/intek"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="set-btn about-donate-btn"
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Heart size={13} /> Support Development
+          </a>
+        </div>
+      </div>
+
+      <div className="about-section" style={{ marginTop: 24 }}>
+        <div className="set-section-header"><h3>License</h3></div>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted, #8892b0)', lineHeight: 1.6 }}>
+          nasOS is open-source software. Commercial use requires permission. See the{' '}
+          <a href="https://github.com/rttgnck/nasOS" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-accent)' }}>
+            GitHub repository
+          </a>{' '}
+          for license details.
+        </p>
+      </div>
     </div>
   )
 }

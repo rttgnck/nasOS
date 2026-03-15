@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { ZoomIn, ZoomOut, RotateCw, Maximize2, Download, AlertCircle, Loader } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ZoomIn, ZoomOut, RotateCw, Maximize2, Download, AlertCircle, Loader, Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
@@ -147,9 +147,15 @@ export function MediaViewer({ filePath, fileName, fileType }: MediaViewerProps) 
   )
 }
 
-/**
- * Tries native streaming first; falls back to server-side transcode on error.
- */
+function fmtTime(s: number): string {
+  if (!isFinite(s) || s < 0) return '0:00'
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
 function VideoPlayer({
   ext,
   streamUrl,
@@ -164,11 +170,19 @@ function VideoPlayer({
   onDownload: () => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
   const isNative = NATIVE_VIDEO.has(ext)
   const [src, setSrc] = useState(isNative ? streamUrl : transcodeUrl)
   const [transcoding, setTranscoding] = useState(!isNative)
   const [error, setError] = useState<string | null>(null)
   const triedTranscode = useRef(!isNative)
+
+  const [playing, setPlaying] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [bufferedEnd, setBufferedEnd] = useState(0)
+  const [muted, setMuted] = useState(false)
+  const [seeking, setSeeking] = useState(false)
 
   const handleError = () => {
     if (!triedTranscode.current) {
@@ -183,6 +197,90 @@ function VideoPlayer({
   const handleCanPlay = () => {
     setTranscoding(false)
   }
+
+  const updateBuffered = useCallback(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.buffered.length > 0) {
+      setBufferedEnd(v.buffered.end(v.buffered.length - 1))
+    }
+  }, [])
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+
+    const onTimeUpdate = () => {
+      if (!seeking) setCurrentTime(v.currentTime)
+      updateBuffered()
+    }
+    const onDurationChange = () => {
+      if (isFinite(v.duration)) setDuration(v.duration)
+    }
+    const onProgress = () => updateBuffered()
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+
+    v.addEventListener('timeupdate', onTimeUpdate)
+    v.addEventListener('durationchange', onDurationChange)
+    v.addEventListener('progress', onProgress)
+    v.addEventListener('play', onPlay)
+    v.addEventListener('pause', onPause)
+    v.addEventListener('loadedmetadata', onDurationChange)
+
+    return () => {
+      v.removeEventListener('timeupdate', onTimeUpdate)
+      v.removeEventListener('durationchange', onDurationChange)
+      v.removeEventListener('progress', onProgress)
+      v.removeEventListener('play', onPlay)
+      v.removeEventListener('pause', onPause)
+      v.removeEventListener('loadedmetadata', onDurationChange)
+    }
+  }, [seeking, updateBuffered])
+
+  const togglePlay = () => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) v.play()
+    else v.pause()
+  }
+
+  const toggleMute = () => {
+    const v = videoRef.current
+    if (!v) return
+    v.muted = !v.muted
+    setMuted(v.muted)
+  }
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const v = videoRef.current
+    const bar = progressRef.current
+    if (!v || !bar || !duration) return
+    const rect = bar.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    v.currentTime = pct * duration
+    setCurrentTime(v.currentTime)
+  }
+
+  const handleProgressDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.buttons !== 1) return
+    setSeeking(true)
+    handleProgressClick(e)
+  }
+
+  const handleProgressUp = () => {
+    setSeeking(false)
+  }
+
+  const toggleFullscreen = () => {
+    const el = videoRef.current?.parentElement
+    if (!el) return
+    if (document.fullscreenElement) document.exitFullscreen()
+    else el.requestFullscreen()
+  }
+
+  const playedPct = duration > 0 ? (currentTime / duration) * 100 : 0
+  const bufferedPct = duration > 0 ? (bufferedEnd / duration) * 100 : 0
 
   if (error) {
     return (
@@ -209,9 +307,9 @@ function VideoPlayer({
         )}
         <video
           ref={videoRef}
-          controls
           autoPlay
           preload="auto"
+          onClick={togglePlay}
           onError={handleError}
           onCanPlay={handleCanPlay}
         >
@@ -222,6 +320,33 @@ function VideoPlayer({
           <div className="mv-toolbar-spacer" />
           <button className="fm-btn" onClick={onDownload} title="Download">
             <Download size={14} />
+          </button>
+        </div>
+        <div className="mv-custom-controls">
+          <button className="mv-ctrl-btn" onClick={togglePlay} title={playing ? 'Pause' : 'Play'}>
+            {playing ? <Pause size={16} /> : <Play size={16} />}
+          </button>
+          <span className="mv-time-label">{fmtTime(currentTime)}</span>
+          <div
+            className="mv-progress-bar"
+            ref={progressRef}
+            onClick={handleProgressClick}
+            onMouseDown={handleProgressDrag}
+            onMouseMove={handleProgressDrag}
+            onMouseUp={handleProgressUp}
+            onMouseLeave={handleProgressUp}
+          >
+            <div className="mv-progress-total" />
+            <div className="mv-progress-buffered" style={{ width: `${bufferedPct}%` }} />
+            <div className="mv-progress-played" style={{ width: `${playedPct}%` }} />
+            <div className="mv-progress-thumb" style={{ left: `${playedPct}%` }} />
+          </div>
+          <span className="mv-time-label">{fmtTime(duration)}</span>
+          <button className="mv-ctrl-btn" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
+            {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          </button>
+          <button className="mv-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">
+            <Maximize size={15} />
           </button>
         </div>
       </div>
