@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="main" x1="28" y1="28" x2="228" y2="228" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4fc3f7"/>
+      <stop offset="100%" stop-color="#6c63ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Server body — centered -->
+  <rect x="54" y="40" width="148" height="176" rx="22" stroke="url(#main)" stroke-width="10" fill="none"/>
+
+  <!-- Drive bay slots -->
+  <rect x="78" y="68" width="100" height="24" rx="6" stroke="url(#main)" stroke-width="6" fill="none"/>
+  <rect x="78" y="112" width="100" height="24" rx="6" stroke="url(#main)" stroke-width="6" fill="none"/>
+  <rect x="78" y="156" width="100" height="24" rx="6" stroke="url(#main)" stroke-width="6" fill="none"/>
+
+  <!-- Drive LEDs -->
+  <circle cx="92" cy="80" r="5" fill="url(#main)"/>
+  <circle cx="92" cy="124" r="5" fill="url(#main)"/>
+  <circle cx="92" cy="168" r="5" fill="url(#main)"/>
+</svg>
