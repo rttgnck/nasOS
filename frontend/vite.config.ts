@@ -20,6 +20,9 @@ function suppressWsErrors(): PluginOption {
 export default defineConfig(({ mode }) => ({
   plugins: [react(), suppressWsErrors()],
   base: mode === 'demo' ? '/nasOS/' : '/',
+  build: {
+    ...(mode === 'demo' ? { outDir: '../dist-demo' } : {}),
+  },
   test: {
     environment: 'jsdom',
     globals: true,

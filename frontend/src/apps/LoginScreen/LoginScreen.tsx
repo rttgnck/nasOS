@@ -72,7 +72,7 @@ export function LoginScreen() {
 
         <div className="login-footer">
           <span>v031426-0045</span>
-          <span className="login-footer-hint">Default login: <strong>admin</strong> / <strong>nasos</strong></span>
+          <span className="login-footer-hint">Default login: <strong>admin</strong> / <strong>{import.meta.env.VITE_DEMO ? 'demo' : 'nasos'}</strong></span>
         </div>
       </div>
     </div>

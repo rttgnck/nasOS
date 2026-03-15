@@ -24,32 +24,20 @@ function delay(ms = 50): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-// ── Route matcher ────────────────────────────────────────────────────
-
-type RouteHandler = (url: URL, init?: RequestInit) => Response | null
-
-function matchRoute(pathname: string, routes: Record<string, RouteHandler>, url: URL, init?: RequestInit): Response | null {
-  for (const [pattern, handler] of Object.entries(routes)) {
-    if (pathname === pattern || pathname.startsWith(pattern + '?') || pathname.startsWith(pattern + '/')) {
-      const result = handler(url, init)
-      if (result) return result
-    }
-  }
-  return null
-}
-
 // ── File list resolver ───────────────────────────────────────────────
 
+const FILE_LISTS: Record<string, unknown> = {
+  '/home/admin': D.FILE_LIST_HOME,
+  '/home/admin/Documents': D.FILE_LIST_DOCUMENTS,
+  '/mnt/storage': D.FILE_LIST_STORAGE,
+}
+
 function getFileList(path: string) {
-  const lists: Record<string, unknown> = {
-    '/home/demo': D.FILE_LIST_HOME,
-    '/home/demo/Documents': D.FILE_LIST_DOCUMENTS,
-    '/mnt/storage': D.FILE_LIST_STORAGE,
-  }
-  return lists[path] ?? {
+  return FILE_LISTS[path] ?? {
     path,
+    parent: path.includes('/') ? path.substring(0, path.lastIndexOf('/')) || null : null,
     entries: [
-      { name: 'sample-file.txt', path: `${path}/sample-file.txt`, is_dir: false, size: 1024, modified: new Date().toISOString() },
+      { name: 'sample-file.txt', path: `${path}/sample-file.txt`, is_dir: false, size: 1024, modified: Math.floor(Date.now() / 1000) },
     ],
   }
 }
@@ -63,116 +51,187 @@ function getFileTree(path: string) {
   }
 }
 
-// ── API route table ──────────────────────────────────────────────────
+// ── Route handler ────────────────────────────────────────────────────
 
-const routes: Record<string, RouteHandler> = {
-  // Auth
-  '/api/auth/login': () =>
-    jsonResponse({ access_token: D.DEMO_TOKEN, user: D.DEMO_USER }),
-  '/api/auth/me': () =>
-    jsonResponse(D.DEMO_USER),
+function getMethod(init?: RequestInit): string {
+  return (init?.method ?? 'GET').toUpperCase()
+}
 
-  // Files
-  '/api/files/list': (url) =>
-    jsonResponse(getFileList(url.searchParams.get('path') ?? '/home/demo')),
-  '/api/files/roots': () =>
-    jsonResponse(D.FILE_ROOTS),
-  '/api/files/tree': (url) =>
-    jsonResponse(getFileTree(url.searchParams.get('path') ?? '/home/demo')),
-  '/api/files/preview': () =>
-    jsonResponse(D.FILE_PREVIEW_MD),
-  '/api/files/search': (url) => {
+function handleApi(url: URL, init?: RequestInit): Response {
+  const p = url.pathname
+  const m = getMethod(init)
+
+  // ── Auth ─────────────────────────────────────────────────────
+  if (p === '/api/auth/login') {
+    try {
+      const body = init?.body ? JSON.parse(init.body as string) : {}
+      if (body.username === D.DEMO_CREDENTIALS.username && body.password === D.DEMO_CREDENTIALS.password) {
+        return jsonResponse({ access_token: D.DEMO_TOKEN, user: D.DEMO_USER })
+      }
+    } catch { /* fall through to error */ }
+    return jsonResponse({ detail: 'Invalid credentials — use admin / demo' }, 401)
+  }
+  if (p === '/api/auth/me') {
+    const authHeader = init?.headers && (init.headers as Record<string, string>)['Authorization']
+    if (authHeader?.includes(D.DEMO_TOKEN))
+      return jsonResponse(D.DEMO_USER)
+    return jsonResponse({ detail: 'Not authenticated' }, 401)
+  }
+
+  // ── Files ────────────────────────────────────────────────────
+  if (p === '/api/files/list')
+    return jsonResponse(getFileList(url.searchParams.get('path') ?? '/home/admin'))
+  if (p === '/api/files/roots')
+    return jsonResponse(D.FILE_ROOTS)
+  if (p === '/api/files/tree')
+    return jsonResponse(getFileTree(url.searchParams.get('path') ?? '/home/admin'))
+  if (p === '/api/files/preview')
+    return jsonResponse(D.FILE_PREVIEW_MD)
+  if (p === '/api/files/search') {
     const query = (url.searchParams.get('query') ?? '').toLowerCase()
     const matches = D.FILE_LIST_HOME.entries.filter((e) =>
       e.name.toLowerCase().includes(query),
     )
     return jsonResponse({ results: matches })
-  },
-  '/api/files/upload': () => ok(),
-  '/api/files/delete': () => ok(),
-  '/api/files/mkdir': () => ok(),
-  '/api/files/rename': () => ok(),
+  }
+  if (p === '/api/files/upload') return ok()
+  if (p === '/api/files/delete') return ok()
+  if (p === '/api/files/mkdir')  return ok()
+  if (p === '/api/files/rename') return ok()
 
-  // File operations
-  '/api/file-ops/copy': () => jsonResponse({ id: 'demo-op-1', status: 'complete' }),
-  '/api/file-ops/move': () => jsonResponse({ id: 'demo-op-2', status: 'complete' }),
-  '/api/file-ops': () => ok(),
+  // ── File operations ──────────────────────────────────────────
+  if (p.startsWith('/api/file-ops')) return ok()
 
-  // Storage
-  '/api/storage/disks': (url) => {
-    if (url.pathname.includes('smart')) return jsonResponse(D.SMART_DATA)
+  // ── Storage ──────────────────────────────────────────────────
+  if (p.startsWith('/api/storage/disks/smart'))
+    return jsonResponse(D.SMART_DATA)
+  if (p === '/api/storage/disks')
     return jsonResponse(D.STORAGE_DISKS)
-  },
-  '/api/storage/volumes': () => jsonResponse(D.STORAGE_VOLUMES),
+  if (p === '/api/storage/volumes')
+    return jsonResponse(D.STORAGE_VOLUMES)
 
-  // Docker
-  '/api/docker/status': () => jsonResponse(D.DOCKER_STATUS),
-  '/api/docker/containers': (url) => {
-    if (url.pathname.includes('/logs')) return jsonResponse(D.DOCKER_LOGS)
+  // ── Docker ───────────────────────────────────────────────────
+  if (p === '/api/docker/status')
+    return jsonResponse(D.DOCKER_STATUS)
+  if (p === '/api/docker/catalog')
+    return jsonResponse(D.DOCKER_CATALOG)
+  if (p.startsWith('/api/docker/install/'))
+    return ok()
+  if (p.match(/^\/api\/docker\/containers\/[^/]+\/logs/))
+    return jsonResponse(D.DOCKER_LOGS)
+  if (p.match(/^\/api\/docker\/containers\/[^/]+$/) && m === 'POST')
+    return ok()
+  if (p.match(/^\/api\/docker\/containers\/[^/]+$/) && m === 'DELETE')
+    return ok()
+  if (p === '/api/docker/containers')
     return jsonResponse(D.DOCKER_CONTAINERS)
-  },
-  '/api/docker/catalog': () => jsonResponse(D.DOCKER_CATALOG),
-  '/api/docker/install': () => ok(),
 
-  // Network
-  '/api/network': (url) => {
-    if (url.pathname.includes('services')) return jsonResponse(D.NETWORK_SERVICES)
+  // ── Network ──────────────────────────────────────────────────
+  if (p === '/api/network/services')
+    return jsonResponse(D.NETWORK_SERVICES)
+  if (p === '/api/network')
     return jsonResponse(D.NETWORK_INFO)
-  },
-  '/api/wifi/status': () => jsonResponse(D.WIFI_STATUS),
-  '/api/wifi/scan': () => jsonResponse({ networks: [] }),
-  '/api/wifi/connect': () => ok(),
-  '/api/wifi/disconnect': () => ok(),
+  if (p === '/api/wifi/status')
+    return jsonResponse(D.WIFI_STATUS)
+  if (p === '/api/wifi/scan')
+    return jsonResponse({ networks: [] })
+  if (p === '/api/wifi/connect') return ok()
+  if (p === '/api/wifi/disconnect') return ok()
 
-  // Users
-  '/api/users': (url) => {
-    if (url.pathname.includes('groups')) return jsonResponse(D.USER_GROUPS)
-    if (url.pathname.includes('password')) return ok()
+  // ── Users ────────────────────────────────────────────────────
+  if (p === '/api/users/groups')
+    return jsonResponse(D.USER_GROUPS)
+  if (p.match(/^\/api\/users\/[^/]+\/password$/) && m === 'POST')
+    return ok()
+  if (p.match(/^\/api\/users\/[^/]+$/) && m === 'DELETE')
+    return ok()
+  if (p === '/api/users' && m === 'POST')
+    return ok()
+  if (p === '/api/users')
     return jsonResponse(D.USERS_LIST)
-  },
 
-  // Shares
-  '/api/shares': () => jsonResponse(D.SHARES_LIST),
+  // ── Shares ───────────────────────────────────────────────────
+  if (p.match(/^\/api\/shares\/[^/]+\/toggle$/) && m === 'POST')
+    return ok()
+  if (p.match(/^\/api\/shares\/[^/]+$/) && m === 'PUT')
+    return ok()
+  if (p.match(/^\/api\/shares\/[^/]+$/) && m === 'DELETE')
+    return ok()
+  if (p === '/api/shares' && m === 'POST')
+    return ok()
+  if (p === '/api/shares')
+    return jsonResponse(D.SHARES_LIST)
 
-  // Backup
-  '/api/backup/jobs': () => jsonResponse(D.BACKUP_JOBS),
-  '/api/backup/snapshots': () => jsonResponse(D.BACKUP_SNAPSHOTS),
-  '/api/backup/remotes': () => jsonResponse(D.BACKUP_REMOTES),
+  // ── Backup ───────────────────────────────────────────────────
+  if (p.match(/^\/api\/backup\/jobs\/[^/]+\/(run|toggle)$/) && m === 'POST')
+    return ok()
+  if (p.match(/^\/api\/backup\/jobs\/[^/]+$/) && m === 'DELETE')
+    return ok()
+  if (p === '/api/backup/jobs')
+    return jsonResponse(D.BACKUP_JOBS)
+  if (p === '/api/backup/snapshots')
+    return jsonResponse(D.BACKUP_SNAPSHOTS)
+  if (p === '/api/backup/remotes')
+    return jsonResponse(D.BACKUP_REMOTES)
 
-  // Security
-  '/api/security/overview': () => jsonResponse(D.SECURITY_OVERVIEW),
-  '/api/security/firewall': () => jsonResponse(D.SECURITY_FIREWALL),
-  '/api/security/fail2ban': () => jsonResponse(D.SECURITY_FAIL2BAN),
-  '/api/security/ssh': () => jsonResponse(D.SECURITY_SSH),
-  '/api/security/tls': () => jsonResponse(D.SECURITY_TLS),
+  // ── Security ─────────────────────────────────────────────────
+  if (p === '/api/security/overview')
+    return jsonResponse(D.SECURITY_OVERVIEW)
+  if (p === '/api/security/firewall')
+    return jsonResponse(D.SECURITY_FIREWALL)
+  if (p === '/api/security/fail2ban')
+    return jsonResponse(D.SECURITY_FAIL2BAN)
+  if (p === '/api/security/ssh')
+    return jsonResponse(D.SECURITY_SSH)
+  if (p === '/api/security/tls')
+    return jsonResponse(D.SECURITY_TLS)
 
-  // System
-  '/api/system/uptime': () => jsonResponse(D.SYSTEM_UPTIME),
-  '/api/system/health': () => jsonResponse(D.SYSTEM_HEALTH),
-  '/api/system/restart': () => ok(),
-  '/api/system/shutdown': () => ok(),
+  // ── System ───────────────────────────────────────────────────
+  if (p === '/api/system/uptime')
+    return jsonResponse(D.SYSTEM_UPTIME)
+  if (p === '/api/system/health')
+    return jsonResponse(D.SYSTEM_HEALTH)
+  if (p === '/api/system/restart' || p === '/api/system/shutdown')
+    return ok()
 
-  // Updates
-  '/api/update/status': () => jsonResponse(D.UPDATE_STATUS),
-  '/api/update/check': () => jsonResponse(D.UPDATE_CHECK_CACHED),
-  '/api/update/download': () => ok(),
-  '/api/update/upload': () => ok(),
-  '/api/update/apply': () => ok(),
-  '/api/update/staged': () => ok(),
-  '/api/update/rollback': () => ok(),
+  // ── Updates ──────────────────────────────────────────────────
+  if (p === '/api/update/status')
+    return jsonResponse(D.UPDATE_STATUS)
+  if (p === '/api/update/check/cached')
+    return jsonResponse(D.UPDATE_CHECK_CACHED)
+  if (p === '/api/update/check')
+    return jsonResponse(D.UPDATE_CHECK_CACHED)
+  if (p === '/api/update/download')  return ok()
+  if (p === '/api/update/upload')    return ok()
+  if (p === '/api/update/apply')     return ok()
+  if (p === '/api/update/staged')    return ok()
+  if (p === '/api/update/rollback')  return ok()
 
-  // Preferences
-  '/api/preferences/theme': () => jsonResponse(D.PREFERENCES_THEME),
-  '/api/preferences/desktop': () => jsonResponse(D.PREFERENCES_DESKTOP),
+  // ── Preferences ──────────────────────────────────────────────
+  if (p === '/api/preferences/theme' && m === 'PUT')  return ok()
+  if (p === '/api/preferences/theme')
+    return jsonResponse(D.PREFERENCES_THEME)
+  if (p === '/api/preferences/desktop' && m === 'PUT') return ok()
+  if (p === '/api/preferences/desktop')
+    return jsonResponse(D.PREFERENCES_DESKTOP)
 
-  // Logs
-  '/api/logs': () => jsonResponse(D.LOGS_DATA),
+  // ── Logs ─────────────────────────────────────────────────────
+  if (p === '/api/logs')
+    return jsonResponse(D.LOGS_DATA)
 
-  // Extras
-  '/api/extras/thermal': () => jsonResponse(D.EXTRAS_THERMAL),
-  '/api/extras/ups': () => jsonResponse(D.EXTRAS_UPS),
-  '/api/extras/avahi': () => jsonResponse(D.EXTRAS_AVAHI),
-  '/api/extras/timemachine': () => jsonResponse(D.EXTRAS_TIMEMACHINE),
+  // ── Extras ───────────────────────────────────────────────────
+  if (p === '/api/extras/thermal')
+    return jsonResponse(D.EXTRAS_THERMAL)
+  if (p === '/api/extras/ups')
+    return jsonResponse(D.EXTRAS_UPS)
+  if (p === '/api/extras/avahi')
+    return jsonResponse(D.EXTRAS_AVAHI)
+  if (p === '/api/extras/timemachine')
+    return jsonResponse(D.EXTRAS_TIMEMACHINE)
+
+  // ── Fallback ─────────────────────────────────────────────────
+  console.debug(`[demo] Unhandled API: ${m} ${p}`)
+  return ok()
 }
 
 // ── Fetch interceptor ────────────────────────────────────────────────
@@ -190,20 +249,11 @@ function installFetchInterceptor() {
 
     await delay(Math.random() * 80 + 20)
 
-    // Match the most specific route first: try full pathname, then progressively shorter
-    const segments = url.pathname.split('/').filter(Boolean)
-    for (let len = segments.length; len >= 2; len--) {
-      const candidate = '/' + segments.slice(0, len).join('/')
-      const handler = routes[candidate]
-      if (handler) {
-        const result = handler(url, init)
-        if (result) return result
-      }
-    }
+    const mergedInit = input instanceof Request
+      ? { method: input.method, ...init }
+      : init
 
-    // Fallback: unknown API endpoint → return empty success
-    console.debug(`[demo] Unhandled API: ${req.method} ${url.pathname}`)
-    return ok()
+    return handleApi(url, mergedInit)
   }
 }
 
@@ -291,6 +341,8 @@ class MockWebSocket {
       this._sendMessage({ type: 'file_ops_snapshot', operations: [] })
     } else if (this.url.includes('/ws/theme-sync')) {
       // No initial message needed
+    } else if (this.url.includes('/ws/terminal')) {
+      this._simulateTerminal()
     }
   }
 
@@ -321,6 +373,16 @@ class MockWebSocket {
     send()
     this._interval = setInterval(send, 1000)
   }
+
+  private _simulateTerminal() {
+    const welcome = '\x1b[1;36mnasOS Demo Terminal\x1b[0m\r\n' +
+      'This is a mock terminal — commands are not executed.\r\n\r\n' +
+      '\x1b[1;32mdemo@nasos-demo\x1b[0m:\x1b[1;34m~\x1b[0m$ '
+
+    setTimeout(() => {
+      this._sendMessage(welcome)
+    }, 100)
+  }
 }
 
 function installWebSocketMock() {
@@ -334,7 +396,6 @@ function installWebSocketMock() {
     return new OriginalWebSocket(url, protocols)
   }
 
-  // Preserve static constants
   window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING
   window.WebSocket.OPEN = OriginalWebSocket.OPEN
   window.WebSocket.CLOSING = OriginalWebSocket.CLOSING
@@ -348,27 +409,29 @@ function addDemoBanner() {
   const banner = document.createElement('div')
   banner.id = 'demo-banner'
   banner.innerHTML = `
-    <span>🖥️ <strong>nasOS Demo</strong> — this is a live preview with mock data.
-    <a href="https://github.com/rttgnck/nasOS" target="_blank" rel="noopener">View on GitHub →</a></span>
+    <span>🖥️ <strong>nasOS Demo</strong> · mock data ·
+    <a href="https://github.com/rttgnck/nasOS" target="_blank" rel="noopener">GitHub →</a></span>
     <button onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
   `
   Object.assign(banner.style, {
     position: 'fixed',
-    bottom: '0',
-    left: '0',
-    right: '0',
+    bottom: '55px',
+    right: '8px',
     zIndex: '999999',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: '12px',
-    padding: '8px 16px',
-    background: 'linear-gradient(135deg, #0f3460, #1a1a2e)',
-    color: '#eeeeee',
-    fontSize: '13px',
+    gap: '8px',
+    padding: '4px 12px',
+    background: 'rgba(15, 52, 96, 0.85)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    color: 'rgba(238, 238, 238, 0.9)',
+    fontSize: '11px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    borderTop: '1px solid #2a2a4a',
-    boxShadow: '0 -2px 12px rgba(0,0,0,0.3)',
+    borderRadius: '6px',
+    border: '1px solid rgba(255,255,255,0.08)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    pointerEvents: 'auto',
   })
 
   const link = banner.querySelector('a')!
@@ -381,29 +444,23 @@ function addDemoBanner() {
   Object.assign(btn.style, {
     background: 'none',
     border: 'none',
-    color: '#aaa',
-    fontSize: '18px',
+    color: 'rgba(170,170,170,0.7)',
+    fontSize: '14px',
     cursor: 'pointer',
-    padding: '0 4px',
+    padding: '0 2px',
     lineHeight: '1',
   })
 
   document.body.appendChild(banner)
 }
 
-// ── Pre-seed auth ────────────────────────────────────────────────────
-
-function preseedAuth() {
-  localStorage.setItem('nasos_auth_token', D.DEMO_TOKEN)
-}
-
 // ── Main entry point ─────────────────────────────────────────────────
 
 export function setupDemoMode() {
-  console.log('%c[nasOS Demo Mode]%c Mock API active — no backend required',
+  console.log('%c[nasOS Demo Mode]%c Mock API active — log in with admin / demo',
     'color: #4fc3f7; font-weight: bold', 'color: inherit')
 
-  preseedAuth()
+  localStorage.removeItem('nasos_auth_token')
   installFetchInterceptor()
   installWebSocketMock()
 

@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./build-demo.sh
 #
 # Deploy to GitHub Pages (from project root):
-#   gh-pages -d dist-demo
+#   npx gh-pages -d dist-demo
 #   — or push the contents of dist-demo/ to the gh-pages branch.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,21 +34,27 @@ fi
 
 # ── 3. Build with demo mode ─────────────────────────────────────────
 echo "🔨 Building demo (VITE_DEMO=1, mode=demo)…"
-(cd "$FRONTEND_DIR" && VITE_DEMO=1 npx vite build --mode demo --outDir "$OUTPUT_DIR" --emptyOutDir)
+(cd "$FRONTEND_DIR" && VITE_DEMO=1 npx vite build --mode demo --emptyOutDir)
 
 # ── 4. Create 404.html for SPA routing on GitHub Pages ───────────────
-# GitHub Pages serves 404.html for unknown paths; this redirects back to
-# index.html so client-side routing still works if ever added.
 cp "$OUTPUT_DIR/index.html" "$OUTPUT_DIR/404.html"
 
 # ── 5. Create .nojekyll so GitHub Pages serves _ prefixed files ──────
 touch "$OUTPUT_DIR/.nojekyll"
 
+# ── 6. Symlink for local preview with `npx serve` ────────────────────
+# Assets are built with base="/nasOS/" for GitHub Pages, so a plain
+# static file server would 404 on /nasOS/assets/…  A self-referencing
+# symlink makes those paths resolve correctly.
+rm -f "$OUTPUT_DIR/nasOS"
+ln -s . "$OUTPUT_DIR/nasOS"
+
 echo ""
 echo "✅ Demo built successfully → $OUTPUT_DIR"
 echo ""
-echo "To preview locally:"
-echo "  npx serve $OUTPUT_DIR"
+echo "To preview locally (either works):"
+echo "  npx serve dist-demo"
+echo "  cd frontend && npx vite preview --mode demo"
 echo ""
 echo "To deploy to GitHub Pages:"
 echo "  npx gh-pages -d dist-demo"
