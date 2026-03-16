@@ -20,14 +20,18 @@ export function useMetricsWebSocket() {
         try {
           const data = JSON.parse(event.data)
           if (data.type === 'metrics') {
+            const safe = (v: unknown, fallback = 0) => {
+              const n = Number(v)
+              return Number.isFinite(n) ? n : fallback
+            }
             updateMetrics({
-              cpuPercent: data.cpu_percent,
-              memoryPercent: data.memory_percent,
-              memoryUsed: data.memory_used,
-              memoryTotal: data.memory_total,
-              temperature: data.temperature,
-              netSentPerSec: data.net?.bytes_sent_per_sec ?? 0,
-              netRecvPerSec: data.net?.bytes_recv_per_sec ?? 0,
+              cpuPercent: safe(data.cpu_percent),
+              memoryPercent: safe(data.memory_percent),
+              memoryUsed: safe(data.memory_used),
+              memoryTotal: safe(data.memory_total, 1),
+              temperature: data.temperature != null ? safe(data.temperature) : null,
+              netSentPerSec: safe(data.net?.bytes_sent_per_sec),
+              netRecvPerSec: safe(data.net?.bytes_recv_per_sec),
             })
           }
         } catch {

@@ -4,6 +4,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import uuid
 from pathlib import Path
 
 import aiofiles
@@ -597,20 +598,56 @@ async def media_info(
 
 # --- Transcode (for non-browser-native video formats) ---
 
+# Track active transcode subprocesses so the frontend can kill them on
+# window close.  Maps session_id → asyncio.subprocess.Process.
+_active_transcodes: dict[str, asyncio.subprocess.Process] = {}
+
+
+def _cleanup_transcode(session_id: str, proc: asyncio.subprocess.Process) -> None:
+    """Kill an ffmpeg process and remove it from the active set."""
+    _active_transcodes.pop(session_id, None)
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass  # already exited
+
+
 @router.get("/transcode")
 async def transcode_file(
     path: str = Query(..., description="Video file to transcode"),
     ss: float = Query(0, description="Start time in seconds for seeking"),
+    sid: str = Query("", description="Client-provided session ID for cleanup tracking"),
 ):
     """Transcode a video file to fragmented MP4 for browser playback.
 
     Uses ``-c copy`` when the source already uses H.264/AAC (instant remux),
     otherwise re-encodes with libx264 ultrafast.  Accepts an optional ``ss``
     parameter to start from a given timestamp (enables seek-ahead).
+
+    Returns the ``X-Transcode-Session`` header so the frontend can call
+    ``/transcode/stop`` when the user closes the player window.
     """
     target = _safe_path(path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+
+    session_id = sid or uuid.uuid4().hex[:12]
+
+    # Kill any existing transcode with this session ID BEFORE spawning
+    # a new ffmpeg process.  This is critical on the Pi 5 — running two
+    # ffmpeg encodes simultaneously will exhaust RAM/CPU and crash the OS.
+    old = _active_transcodes.pop(session_id, None)
+    if old and old.returncode is None:
+        _log.info("transcode killing previous session=%s pid=%s before re-seek", session_id, old.pid)
+        try:
+            old.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(old.wait(), timeout=3)
+        except Exception:
+            pass
 
     v_codec, a_codec = await _ffprobe_codecs(str(target))
 
@@ -624,16 +661,18 @@ async def transcode_file(
     # broken output (missing keyframes). Only use copy when starting from 0.
     if ss > 0:
         v_args = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
-        a_args = ["-c:a", "aac", "-b:a", "192k"]
+        a_args = ["-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "44100"]
     else:
-        v_args = ["-c:v", "copy"] if v_codec in ("h264", "h265", "hevc") else [
+        v_args = ["-c:v", "copy"] if v_codec == "h264" else [
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         ]
-        a_args = ["-c:a", "copy"] if a_codec == "aac" else ["-c:a", "aac", "-b:a", "192k"]
+        a_args = ["-c:a", "copy"] if a_codec == "aac" else ["-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "44100"]
 
     cmd = [
         "ffmpeg", *input_args,
+        "-map", "0:v:0", "-map", "0:a:0?",
         *v_args, *a_args,
+        "-threads", "2",       # Cap CPU usage — Pi 5 has 4 cores, leave headroom
         "-movflags", "frag_keyframe+empty_moov+default_base_moof",
         "-f", "mp4",
         "-loglevel", "error",
@@ -651,6 +690,8 @@ async def transcode_file(
             status_code=500,
             detail="FFmpeg is not installed on this system",
         )
+    _active_transcodes[session_id] = proc
+    _log.info("transcode started session=%s pid=%s file=%s", session_id, proc.pid, target.name)
 
     async def _stream():
         assert proc.stdout is not None
@@ -661,9 +702,12 @@ async def transcode_file(
                     break
                 yield chunk
         finally:
-            if proc.returncode is None:
-                proc.kill()
-            await proc.wait()
+            _cleanup_transcode(session_id, proc)
+            try:
+                await proc.wait()
+            except Exception:
+                pass
+            _log.info("transcode ended session=%s", session_id)
 
     return StreamingResponse(
         _stream(),
@@ -673,6 +717,40 @@ async def transcode_file(
             "Cache-Control": "no-cache",
         },
     )
+
+
+@router.post("/transcode/stop")
+async def stop_transcode(
+    session: str = Query(..., description="Transcode session ID from X-Transcode-Session header"),
+):
+    """Explicitly stop a running transcode. Called by the frontend when the
+    video player window is closed so ffmpeg doesn't keep running."""
+    proc = _active_transcodes.pop(session, None)
+    if proc is None:
+        return {"ok": True, "detail": "session already stopped or unknown"}
+    _cleanup_transcode(session, proc)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except Exception:
+        pass
+    _log.info("transcode force-stopped session=%s", session)
+    return {"ok": True}
+
+
+@router.post("/transcode/stop-all")
+async def stop_all_transcodes():
+    """Emergency cleanup — kill every active transcode process."""
+    killed = []
+    for sid in list(_active_transcodes):
+        proc = _active_transcodes.pop(sid, None)
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            killed.append(sid)
+    _log.info("transcode stop-all killed %d sessions", len(killed))
+    return {"ok": True, "killed": killed}
 
 
 # --- Thumbnail (for gallery view) ---

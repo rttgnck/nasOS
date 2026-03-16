@@ -19,6 +19,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      autoplayPolicy: 'no-user-gesture-required',
       preload: path.join(__dirname, 'preload.js'),
     },
   })

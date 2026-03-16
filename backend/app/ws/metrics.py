@@ -46,8 +46,11 @@ def _get_net_rates() -> dict:
     if _prev_net and _prev_time:
         dt = now - _prev_time
         if dt > 0:
-            rates["bytes_sent_per_sec"] = int((counters.bytes_sent - _prev_net.bytes_sent) / dt)
-            rates["bytes_recv_per_sec"] = int((counters.bytes_recv - _prev_net.bytes_recv) / dt)
+            sent = int((counters.bytes_sent - _prev_net.bytes_sent) / dt)
+            recv = int((counters.bytes_recv - _prev_net.bytes_recv) / dt)
+            # Guard against counter resets producing negative values
+            rates["bytes_sent_per_sec"] = max(0, sent)
+            rates["bytes_recv_per_sec"] = max(0, recv)
 
     _prev_net = counters
     _prev_time = now

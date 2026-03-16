@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ZoomIn, ZoomOut, RotateCw, Maximize2, Download, AlertCircle, Loader, Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import { api } from '../../hooks/useApi'
@@ -10,6 +10,10 @@ const AUDIO_EXTS = new Set(['mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'opus', '
 // Formats the browser <video> element can play natively
 const NATIVE_VIDEO = new Set(['mp4', 'webm'])
 const NATIVE_AUDIO = new Set(['mp3', 'wav', 'ogg', 'aac', 'opus', 'm4a', 'flac'])
+
+// Audio codecs that browsers can decode inside a video container.
+// If the file's audio codec is NOT in this set, we must transcode.
+const BROWSER_AUDIO_CODECS = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac', 'pcm_s16le', 'pcm_f32le'])
 
 function authUrl(url: string): string {
   const token = useAuthStore.getState().token
@@ -176,19 +180,17 @@ function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const seekingRef = useRef(false)
-  const isNative = NATIVE_VIDEO.has(ext)
+  const isNativeContainer = NATIVE_VIDEO.has(ext)
 
-  // ssOffset tracks the -ss value sent to the transcode endpoint.
   // For transcoded streams, video.currentTime starts at 0 from the
-  // transcode start point, so the real playback position = ssOffset + video.currentTime.
+  // transcode start point. Real position = ssOffset + video.currentTime.
   const ssOffsetRef = useRef(0)
 
-  const [src, setSrc] = useState(isNative ? streamUrl : transcodeUrl)
-  const [transcoding, setTranscoding] = useState(!isNative)
+  const [src, setSrc] = useState('')
+  const [transcoding, setTranscoding] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const triedTranscode = useRef(!isNative)
-  const isTranscoded = useRef(!isNative)
-
+  const triedTranscode = useRef(false)
+  const isTranscoded = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [totalDuration, setTotalDuration] = useState(0)
@@ -196,23 +198,108 @@ function VideoPlayer({
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
 
-  // Fetch the real total duration from ffprobe on mount
+  // Stable session ID for the lifetime of this player instance.
+  // Re-using the same sid on every seek lets the backend kill the
+  // previous ffmpeg process *synchronously* before spawning a new one,
+  // so there are never two transcodes running at once on the Pi.
+  const sessionIdRef = useRef(Math.random().toString(36).slice(2, 14))
+
+  /** Stop the current transcode process on the backend. */
+  const stopTranscode = useCallback(() => {
+    const sid = sessionIdRef.current
+    // Fire-and-forget — use sendBeacon for reliability during page unload,
+    // fall back to fetch for normal unmount.
+    const token = useAuthStore.getState().token
+    const url = `/api/files/transcode/stop?session=${encodeURIComponent(sid)}&token=${encodeURIComponent(token ?? '')}`
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url)
+    } else {
+      fetch(url, { method: 'POST', keepalive: true }).catch(() => {})
+    }
+  }, [])
+
+  const loadSource = useCallback((url: string) => {
+    const v = videoRef.current
+    if (!v) return
+
+    // If this is a transcode URL, attach our stable session ID.
+    // The backend will kill any existing process with this sid before
+    // starting the new one — critical on resource-limited Pi hardware.
+    if (url.includes('/transcode')) {
+      // Disconnect the old stream immediately so the browser drops
+      // the TCP connection and the backend's _stream() generator exits.
+      v.pause()
+      v.removeAttribute('src')
+      v.load()
+
+      const sep = url.includes('?') ? '&' : '?'
+      url = `${url}${sep}sid=${encodeURIComponent(sessionIdRef.current)}`
+    }
+
+    setSrc(url)
+    v.src = url
+    v.load()
+    v.play().catch(() => {})
+  }, [])
+
+  // Clean up transcode on unmount
+  useEffect(() => {
+    return () => {
+      stopTranscode()
+      // Also sever the streaming connection
+      const v = videoRef.current
+      if (v) {
+        v.pause()
+        v.removeAttribute('src')
+        v.load()
+      }
+    }
+  }, [stopTranscode])
+
+  // Fetch media-info to get duration AND audio codec. If the audio codec
+  // isn't browser-decodable (e.g. AC3, DTS, EAC3), force transcoding so
+  // FFmpeg re-encodes audio to AAC — otherwise the browser plays video
+  // but silently drops the incompatible audio track.
   useEffect(() => {
     const encodedPath = encodeURIComponent(filePath)
-    api<{ duration: number }>(`/api/files/media-info?path=${encodedPath}`)
+    api<{ duration: number; audio_codec: string }>(`/api/files/media-info?path=${encodedPath}`)
       .then((info) => {
         if (info.duration > 0) setTotalDuration(info.duration)
+
+        const audioOk = !info.audio_codec || BROWSER_AUDIO_CODECS.has(info.audio_codec)
+        const canPlayNative = isNativeContainer && audioOk
+
+        if (canPlayNative) {
+          isTranscoded.current = false
+          triedTranscode.current = false
+          setTranscoding(false)
+          loadSource(streamUrl)
+        } else {
+          isTranscoded.current = true
+          triedTranscode.current = true
+          loadSource(transcodeUrl)
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (isNativeContainer) {
+          isTranscoded.current = false
+          setTranscoding(false)
+          loadSource(streamUrl)
+        } else {
+          isTranscoded.current = true
+          triedTranscode.current = true
+          loadSource(transcodeUrl)
+        }
+      })
   }, [filePath])
 
   const handleError = () => {
     if (!triedTranscode.current) {
       triedTranscode.current = true
       isTranscoded.current = true
-      setTranscoding(true)
       ssOffsetRef.current = 0
-      setSrc(transcodeUrl)
+      setTranscoding(true)
+      loadSource(transcodeUrl)
       return
     }
     setError('Unable to play this video. The format may be unsupported, or FFmpeg may not be installed on the server.')
@@ -222,7 +309,7 @@ function VideoPlayer({
     setTranscoding(false)
   }
 
-  // Wire up video element events (only once, no state deps)
+  // Wire up video element events (once)
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
@@ -237,7 +324,6 @@ function VideoPlayer({
     }
 
     const onDuration = () => {
-      // For native files, the browser knows the real duration
       if (!isTranscoded.current && isFinite(v.duration) && v.duration > 0) {
         setTotalDuration(v.duration)
       }
@@ -295,9 +381,6 @@ function VideoPlayer({
     if (val > 0 && v.muted) v.muted = false
   }
 
-  // Seek to a position in the video. For native formats, just set currentTime.
-  // For transcoded content, if the target is outside the buffered range, restart
-  // the transcode with -ss to jump there.
   const seekToTime = (targetTime: number) => {
     const v = videoRef.current
     if (!v || totalDuration <= 0) return
@@ -306,32 +389,28 @@ function VideoPlayer({
     setCurrentTime(clamped)
 
     if (!isTranscoded.current) {
-      // Native — browser handles range seeking
       v.currentTime = clamped
       return
     }
 
-    // For transcoded: check if the target falls within the already-buffered window
+    // Check if the target falls within the already-buffered window
     const localTarget = clamped - ssOffsetRef.current
     const localBuffered = v.buffered.length > 0
       ? v.buffered.end(v.buffered.length - 1)
       : 0
 
     if (localTarget >= 0 && localTarget <= localBuffered) {
-      // Within buffered range — just seek locally
       v.currentTime = localTarget
     } else {
-      // Outside buffer — restart transcode from the new position
+      // Restart transcode from the new position
       ssOffsetRef.current = clamped
       setBufferedEnd(clamped)
       const encodedPath = encodeURIComponent(filePath)
       const token = useAuthStore.getState().token
-      const sep = '?'
-      let url = `/api/files/transcode${sep}path=${encodedPath}&ss=${clamped}`
+      let url = `/api/files/transcode?path=${encodedPath}&ss=${clamped}`
       if (token) url += `&token=${encodeURIComponent(token)}`
       setTranscoding(true)
-      setSrc(url)
-      // The video element will reload and autoPlay from the new src
+      loadSource(url)
     }
   }
 
@@ -392,20 +471,19 @@ function VideoPlayer({
         {transcoding && (
           <div className="mv-transcode-indicator">
             <Loader size={16} className="mv-spinner" />
-            <span>Transcoding...</span>
+            <span>Loading...</span>
           </div>
         )}
         <video
           ref={videoRef}
+          src={src || undefined}
           autoPlay
           preload="auto"
           playsInline
           onClick={togglePlay}
           onError={handleError}
           onCanPlay={handleCanPlay}
-        >
-          <source src={src} type="video/mp4" />
-        </video>
+        />
         <div className="mv-video-overlay-bar">
           <span className="mv-filename">{fileName}</span>
           <div className="mv-toolbar-spacer" />
