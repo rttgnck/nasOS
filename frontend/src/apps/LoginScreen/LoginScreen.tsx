@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Keyboard } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 
 export function LoginScreen() {
@@ -21,7 +22,7 @@ export function LoginScreen() {
       <div className="login-card">
         <div className="login-logo">
           <div className="login-logo-icon">
-            <img src="/nasos-logo.svg" alt="nasOS" style={{ width: 64, height: 64, borderRadius: 8 }} />
+            <img src={`${import.meta.env.BASE_URL}nasos-logo.svg`} alt="nasOS" style={{ width: 64, height: 64, borderRadius: 8 }} />
           </div>
           <h1 className="login-title">nasOS</h1>
           <p className="login-subtitle">Network Attached Storage</p>
@@ -75,6 +76,14 @@ export function LoginScreen() {
           <span className="login-footer-hint">Default login: <strong>admin</strong> / <strong>{import.meta.env.VITE_DEMO ? 'demo' : 'nasos'}</strong></span>
         </div>
       </div>
+
+      <button
+        className="login-osk-btn"
+        title="On-Screen Keyboard"
+        onClick={() => window.dispatchEvent(new CustomEvent('nasos:toggle-osk'))}
+      >
+        <Keyboard size={20} strokeWidth={1.75} />
+      </button>
     </div>
   )
 }

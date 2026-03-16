@@ -134,7 +134,7 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
     <div className="set-root">
       <div className="set-sidebar">
         <div className="set-sidebar-logo">
-          <img src="/nasos-logo.svg" alt="nasOS" className="set-logo-img" />
+          <img src={`${import.meta.env.BASE_URL}nasos-logo.svg`} alt="nasOS" className="set-logo-img" />
           <span className="set-logo-text">nasOS</span>
         </div>
         <div className="set-nav-group">Appearance</div>
@@ -2088,11 +2088,12 @@ function TimeMachineTab() {
 
 // ── Personalization Tab ──────────────────────────────────────────
 
+const _base = import.meta.env.BASE_URL
 const WALLPAPERS = [
-  { id: 'cosmic',   label: 'Cosmic',   url: '/wallpapers/cosmic.png' },
-  { id: 'abstract', label: 'Abstract', url: '/wallpapers/abstract.png' },
-  { id: 'aurora',   label: 'Aurora',   url: '/wallpapers/aurora.png' },
-  { id: 'mesh',     label: 'Mesh',     url: '/wallpapers/mesh.png' },
+  { id: 'cosmic',   label: 'Cosmic',   url: `${_base}wallpapers/cosmic.png` },
+  { id: 'abstract', label: 'Abstract', url: `${_base}wallpapers/abstract.png` },
+  { id: 'aurora',   label: 'Aurora',   url: `${_base}wallpapers/aurora.png` },
+  { id: 'mesh',     label: 'Mesh',     url: `${_base}wallpapers/mesh.png` },
 ]
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -2865,7 +2866,7 @@ function AboutTab() {
   return (
     <div className="set-tab-content">
       <div className="about-hero">
-        <img src="/nasos-logo.svg" alt="nasOS" className="about-logo" />
+        <img src={`${import.meta.env.BASE_URL}nasos-logo.svg`} alt="nasOS" className="about-logo" />
         <div className="about-hero-text">
           <h2 className="about-title">nasOS</h2>
           <div className="about-version">

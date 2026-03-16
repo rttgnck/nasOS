@@ -147,6 +147,29 @@ export function Terminal({ windowId }: TerminalProps) {
     }
   }, [windowId, connect])
 
+  // Bridge on-screen keyboard input into xterm.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const term = termRef.current
+      const ws = wsRef.current
+      if (!term || !ws || ws.readyState !== WebSocket.OPEN) return
+
+      const textarea = term.element?.querySelector('textarea')
+      if (!textarea || document.activeElement !== textarea) return
+
+      const { key } = (e as CustomEvent).detail as { key: string }
+      e.preventDefault()
+
+      if (key === 'Backspace') ws.send('\x7f')
+      else if (key === 'Enter') ws.send('\r')
+      else if (key === 'Tab') ws.send('\t')
+      else if (key === 'Space') ws.send(' ')
+      else ws.send(key)
+    }
+    window.addEventListener('nasos:osk-input', handler)
+    return () => window.removeEventListener('nasos:osk-input', handler)
+  }, [])
+
   const handleClick = useCallback(() => {
     termRef.current?.focus()
   }, [])

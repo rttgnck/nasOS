@@ -31,6 +31,7 @@ export function OnScreenKeyboard() {
   const dragOffset = useRef({ x: 0, y: 0 })
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const kbRef = useRef<HTMLDivElement>(null)
+  const lastFocusedRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const handler = () => setVisible((v) => !v)
@@ -38,8 +39,30 @@ export function OnScreenKeyboard() {
     return () => window.removeEventListener('nasos:toggle-osk', handler)
   }, [])
 
+  // Track the last focused element that isn't part of the OSK itself,
+  // so we always have a valid target even if activeElement is the body.
+  useEffect(() => {
+    if (!visible) return
+    const handler = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && !kbRef.current?.contains(target)) {
+        lastFocusedRef.current = target
+      }
+    }
+    document.addEventListener('focusin', handler)
+    return () => document.removeEventListener('focusin', handler)
+  }, [visible])
+
   const isUpper = shifted || capsLock
   const rows = isUpper ? ROWS_UPPER : ROWS_LOWER
+
+  const getTarget = useCallback((): HTMLElement | null => {
+    const active = document.activeElement as HTMLElement | null
+    if (active && active !== document.body && !kbRef.current?.contains(active)) {
+      return active
+    }
+    return lastFocusedRef.current
+  }, [])
 
   const handleKey = useCallback((key: string) => {
     setPressed(key)
@@ -55,22 +78,31 @@ export function OnScreenKeyboard() {
     }
     if (key === 'Ctrl' || key === 'Alt') return
 
-    const el = document.activeElement as HTMLElement | null
+    // Let rich editors (Monaco, etc.) handle input via their own APIs first.
+    // If a listener calls preventDefault(), we skip the generic DOM path.
+    const oskEvent = new CustomEvent('nasos:osk-input', {
+      detail: { key },
+      cancelable: true,
+    })
+    window.dispatchEvent(oskEvent)
 
-    if (key === 'Space') {
-      dispatchKey(el, ' ')
-    } else if (key === 'Backspace') {
-      dispatchKey(el, '', 'Backspace')
-    } else if (key === 'Enter') {
-      dispatchKey(el, '', 'Enter')
-    } else if (key === 'Tab') {
-      dispatchKey(el, '', 'Tab')
-    } else {
-      dispatchKey(el, key)
+    if (!oskEvent.defaultPrevented) {
+      const el = getTarget()
+      if (key === 'Space') {
+        dispatchKey(el, ' ')
+      } else if (key === 'Backspace') {
+        dispatchKey(el, '', 'Backspace')
+      } else if (key === 'Enter') {
+        dispatchKey(el, '', 'Enter')
+      } else if (key === 'Tab') {
+        dispatchKey(el, '', 'Tab')
+      } else {
+        dispatchKey(el, key)
+      }
     }
 
     if (shifted && !capsLock) setShifted(false)
-  }, [shifted, capsLock])
+  }, [shifted, capsLock, getTarget])
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     if (!kbRef.current) return
@@ -135,42 +167,78 @@ export function OnScreenKeyboard() {
   )
 }
 
+/**
+ * Check if an element is a standard input/textarea that we should manipulate
+ * directly (for React controlled input compatibility), as opposed to elements
+ * managed by rich editors like Monaco.
+ */
+function isPlainInput(el: HTMLElement): el is HTMLInputElement | HTMLTextAreaElement {
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return false
+  return !el.closest('.monaco-editor')
+}
+
+/**
+ * Use the native prototype setter to bypass React's internal value tracker,
+ * ensuring React detects the change when the subsequent input event fires.
+ */
+function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+  if (setter) setter.call(el, value)
+  else el.value = value
+}
+
 function dispatchKey(el: HTMLElement | null, char: string, code?: string) {
   if (!el) return
 
-  const keyCode = code || char
-  const opts = { key: keyCode, code: code || `Key${char.toUpperCase()}`, bubbles: true }
+  const key = code || char
+  const kbOpts: KeyboardEventInit = {
+    key,
+    code: code || (char === ' ' ? 'Space' : `Key${char.toUpperCase()}`),
+    bubbles: true,
+    cancelable: true,
+  }
 
-  el.dispatchEvent(new KeyboardEvent('keydown', opts))
+  el.dispatchEvent(new KeyboardEvent('keydown', kbOpts))
 
-  if (char && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-    const start = el.selectionStart ?? el.value.length
-    const end = el.selectionEnd ?? start
-    el.value = el.value.slice(0, start) + char + el.value.slice(end)
-    el.selectionStart = el.selectionEnd = start + char.length
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-  } else if (code === 'Backspace' && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-    const start = el.selectionStart ?? el.value.length
-    const end = el.selectionEnd ?? start
-    if (start === end && start > 0) {
-      el.value = el.value.slice(0, start - 1) + el.value.slice(end)
-      el.selectionStart = el.selectionEnd = start - 1
-    } else if (start !== end) {
-      el.value = el.value.slice(0, start) + el.value.slice(end)
-      el.selectionStart = el.selectionEnd = start
-    }
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-  } else if (code === 'Enter' && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-    if (el instanceof HTMLTextAreaElement) {
+  if (char) {
+    if (isPlainInput(el)) {
       const start = el.selectionStart ?? el.value.length
       const end = el.selectionEnd ?? start
-      el.value = el.value.slice(0, start) + '\n' + el.value.slice(end)
+      setNativeValue(el, el.value.slice(0, start) + char + el.value.slice(end))
+      el.selectionStart = el.selectionEnd = start + char.length
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    } else {
+      document.execCommand('insertText', false, char)
+    }
+  } else if (code === 'Backspace') {
+    if (isPlainInput(el)) {
+      const start = el.selectionStart ?? el.value.length
+      const end = el.selectionEnd ?? start
+      if (start === end && start > 0) {
+        setNativeValue(el, el.value.slice(0, start - 1) + el.value.slice(end))
+        el.selectionStart = el.selectionEnd = start - 1
+      } else if (start !== end) {
+        setNativeValue(el, el.value.slice(0, start) + el.value.slice(end))
+        el.selectionStart = el.selectionEnd = start
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    } else {
+      document.execCommand('delete', false, undefined)
+    }
+  } else if (code === 'Enter') {
+    if (isPlainInput(el) && el instanceof HTMLInputElement) {
+      el.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true }))
+    } else if (isPlainInput(el) && el instanceof HTMLTextAreaElement) {
+      const start = el.selectionStart ?? el.value.length
+      const end = el.selectionEnd ?? start
+      setNativeValue(el, el.value.slice(0, start) + '\n' + el.value.slice(end))
       el.selectionStart = el.selectionEnd = start + 1
       el.dispatchEvent(new Event('input', { bubbles: true }))
     } else {
-      el.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true }))
+      document.execCommand('insertLineBreak', false, undefined)
     }
   }
 
-  el.dispatchEvent(new KeyboardEvent('keyup', opts))
+  el.dispatchEvent(new KeyboardEvent('keyup', kbOpts))
 }

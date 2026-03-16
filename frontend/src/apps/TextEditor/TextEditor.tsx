@@ -159,6 +159,33 @@ export function TextEditor({ filePath, fileName, windowId }: TextEditorProps) {
     editor.focus()
   }
 
+  // Bridge on-screen keyboard input into Monaco via its trigger API.
+  // The OSK fires a cancelable nasos:osk-input event; if we handle it
+  // here we call preventDefault() so the OSK skips its generic DOM path.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const editor = editorRef.current
+      if (!editor || !editor.hasTextFocus()) return
+
+      const { key } = (e as CustomEvent).detail as { key: string }
+      e.preventDefault()
+
+      if (key === 'Backspace') {
+        editor.trigger('osk', 'deleteLeft', {})
+      } else if (key === 'Enter') {
+        editor.trigger('osk', 'type', { text: '\n' })
+      } else if (key === 'Tab') {
+        editor.trigger('osk', 'tab', {})
+      } else if (key === 'Space') {
+        editor.trigger('osk', 'type', { text: ' ' })
+      } else {
+        editor.trigger('osk', 'type', { text: key })
+      }
+    }
+    window.addEventListener('nasos:osk-input', handler)
+    return () => window.removeEventListener('nasos:osk-input', handler)
+  }, [])
+
   const handleChange = (value: string | undefined) => {
     setContent(value ?? '')
     setDirty(value !== originalContent)

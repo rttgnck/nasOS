@@ -27,7 +27,6 @@ import { PlaceholderApp } from '../apps/PlaceholderApp'
 import { ToastContainer } from './ToastContainer'
 import { ChangePasswordModal } from '../apps/ForceChangePassword/ForceChangePassword'
 import { FileOpsModal } from '../apps/FileManager/FileOpsModal'
-import { OnScreenKeyboard } from './OnScreenKeyboard'
 import { Dock } from './Dock'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useDesktopSync } from '../hooks/useDesktopSync'
@@ -155,7 +154,6 @@ export function Desktop() {
       <ToastContainer />
       <ChangePasswordModal />
       <FileOpsModal />
-      <OnScreenKeyboard />
       <Dock />
       <Taskbar />
     </div>

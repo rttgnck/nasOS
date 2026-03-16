@@ -3,6 +3,7 @@ import { useAuthStore } from './store/authStore'
 import { useThemeStore } from './store/themeStore'
 import { Desktop } from './desktop/Desktop'
 import { LoginScreen } from './apps/LoginScreen/LoginScreen'
+import { OnScreenKeyboard } from './desktop/OnScreenKeyboard'
 
 export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -50,8 +51,18 @@ export function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginScreen />
+    return (
+      <>
+        <LoginScreen />
+        <OnScreenKeyboard />
+      </>
+    )
   }
 
-  return <Desktop />
+  return (
+    <>
+      <Desktop />
+      <OnScreenKeyboard />
+    </>
+  )
 }

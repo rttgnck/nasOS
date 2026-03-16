@@ -124,7 +124,7 @@ export function Taskbar() {
     <div className="taskbar">
       {/* App Menu Button */}
       <button ref={menuBtnRef} className="taskbar-menu-btn" onClick={() => setShowMenu(!showMenu)} title="Applications">
-        <img src="/nasos-logo.svg" alt="nasOS" style={{ width: 22, height: 22, borderRadius: 4 }} />
+        <img src={`${import.meta.env.BASE_URL}nasos-logo.svg`} alt="nasOS" style={{ width: 22, height: 22, borderRadius: 4 }} />
       </button>
 
       {/* App Menu Popup — rendered via portal to escape the taskbar's
@@ -132,7 +132,7 @@ export function Taskbar() {
       {showMenu && createPortal(
         <div ref={menuRef} className="taskbar-menu">
           <div className="taskbar-menu-header">
-            <img src="/nasos-logo.svg" alt="" style={{ width: 24, height: 24, borderRadius: 4 }} />
+            <img src={`${import.meta.env.BASE_URL}nasos-logo.svg`} alt="" style={{ width: 24, height: 24, borderRadius: 4 }} />
             <span>nasOS</span>
             {user && <span className="taskbar-menu-user">{user.username}</span>}
           </div>

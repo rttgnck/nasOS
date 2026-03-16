@@ -396,11 +396,13 @@ function installWebSocketMock() {
     return new OriginalWebSocket(url, protocols)
   }
 
-  window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING
-  window.WebSocket.OPEN = OriginalWebSocket.OPEN
-  window.WebSocket.CLOSING = OriginalWebSocket.CLOSING
-  window.WebSocket.CLOSED = OriginalWebSocket.CLOSED
-  window.WebSocket.prototype = OriginalWebSocket.prototype
+  Object.defineProperties(window.WebSocket, {
+    CONNECTING: { value: OriginalWebSocket.CONNECTING },
+    OPEN:       { value: OriginalWebSocket.OPEN },
+    CLOSING:    { value: OriginalWebSocket.CLOSING },
+    CLOSED:     { value: OriginalWebSocket.CLOSED },
+    prototype:  { value: OriginalWebSocket.prototype },
+  })
 }
 
 // ── Demo banner ──────────────────────────────────────────────────────
@@ -461,6 +463,11 @@ export function setupDemoMode() {
     'color: #4fc3f7; font-weight: bold', 'color: inherit')
 
   localStorage.removeItem('nasos_auth_token')
+
+  // Pre-seed theme + wallpaper so initTheme() applies Liquid Glass before first paint
+  localStorage.setItem('nasos-theme', 'liquid-glass')
+  localStorage.setItem('nasos-wallpaper', `${import.meta.env.BASE_URL}wallpapers/abstract.png`)
+
   installFetchInterceptor()
   installWebSocketMock()
 

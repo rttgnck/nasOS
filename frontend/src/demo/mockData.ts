@@ -436,12 +436,12 @@ export const UPDATE_CHECK_CACHED = {
 // ── Preferences ──────────────────────────────────────────────────────
 
 export const PREFERENCES_THEME = {
-  active_theme_id: 'default',
+  active_theme_id: 'liquid-glass',
   custom_themes: [],
 }
 
 export const PREFERENCES_DESKTOP = {
-  wallpaper: null,
+  wallpaper: `${import.meta.env.BASE_URL}wallpapers/abstract.png`,
   widgets: {
     enabledWidgets: ['clock', 'system-monitor', 'storage'],
     customWidgets: [],
