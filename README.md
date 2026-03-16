@@ -24,9 +24,6 @@
   <img src="docs/screenshots/desktop.png" alt="nasOS Desktop" width="720">
 </p>
 
-## Live Demo
-View and explore a demo [here](https://rttgnck.github.io/nasOS)
-
 ## What is nasOS?
 
 nasOS turns a Raspberry Pi 5 into a full-featured network-attached storage device with a desktop-class management interface. Unlike headless NAS solutions, nasOS boots directly into a graphical desktop on an attached display — the same interface you see in the browser when you connect remotely.
@@ -34,6 +31,9 @@ nasOS turns a Raspberry Pi 5 into a full-featured network-attached storage devic
 The desktop is a custom window manager built entirely in React with draggable, resizable, snappable windows, a taskbar, system tray, notifications, and keyboard shortcuts like Alt+Tab. Every management task — files, storage, shares, Docker containers, backups, users, network, security — has its own windowed application.
 
 The backend is a FastAPI server that wraps real Linux system tools (`lsblk`, `smartctl`, `smbpasswd`, `docker`, `systemctl`, etc.) behind a REST + WebSocket API. On macOS/Windows dev machines the backend automatically returns mock data, so every feature of the UI can be developed and tested without a Pi.
+
+## Live Demo
+View and explore a live demo [here](https://rttgnck.github.io/nasOS)
 
 ## Features
 
