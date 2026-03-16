@@ -292,11 +292,20 @@ def get_app_catalog() -> list[dict]:
     return APP_CATALOG
 
 
+import re
+
+_VALID_APP_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+
+
 def install_app(app_id: str) -> dict:
     """Install an app from the catalog (docker pull + run)."""
+    if not _VALID_APP_ID.match(app_id):
+        return {"ok": False, "error": "Invalid app ID"}
+
+    # app_id must exist in the catalog — prevents arbitrary container names
     app = next((a for a in APP_CATALOG if a["id"] == app_id), None)
     if not app:
-        return {"ok": False, "error": "App not found"}
+        return {"ok": False, "error": "App not found in catalog"}
 
     if not _is_linux:
         # Mock install

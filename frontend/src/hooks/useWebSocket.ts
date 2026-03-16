@@ -1,17 +1,21 @@
 import { useEffect, useRef } from 'react'
+import { useAuthStore } from '../store/authStore'
 import { useSystemStore } from '../store/systemStore'
 
 export function useMetricsWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const { updateMetrics, setConnected } = useSystemStore()
+  const token = useAuthStore((s) => s.token)
 
   useEffect(() => {
+    if (!token) return
+
     let reconnectTimeout: ReturnType<typeof setTimeout>
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const host = window.location.host
-      const ws = new WebSocket(`${protocol}//${host}/ws/metrics`)
+      const ws = new WebSocket(`${protocol}//${host}/ws/metrics?token=${encodeURIComponent(token!)}`)
       wsRef.current = ws
 
       ws.onopen = () => setConnected(true)
@@ -53,5 +57,5 @@ export function useMetricsWebSocket() {
       clearTimeout(reconnectTimeout)
       wsRef.current?.close()
     }
-  }, [updateMetrics, setConnected])
+  }, [updateMetrics, setConnected, token])
 }

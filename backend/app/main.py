@@ -2,9 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import auth, backup, docker, extras, file_ops, files, logs, network, preferences, security, shares, storage, system, update, users, wifi
 from app.core.config import settings
@@ -53,6 +54,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# ── Security headers middleware ──────────────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        if not settings.dev_mode:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS for dev (frontend on different port)
 app.add_middleware(
     CORSMiddleware,
@@ -64,11 +84,12 @@ app.add_middleware(
 
 # ── Public routes (no auth required) ─────────────────────────────────
 app.include_router(auth.router)
-app.include_router(system.router)  # /api/system/health is public for health checks
+app.include_router(system.health_router)  # /api/system/health only
 
 # ── Protected routes (JWT required) ──────────────────────────────────
 _auth = [Depends(get_current_user)]
 
+app.include_router(system.router, dependencies=_auth)
 app.include_router(files.router, dependencies=_auth)
 app.include_router(storage.router, dependencies=_auth)
 app.include_router(shares.router, dependencies=_auth)

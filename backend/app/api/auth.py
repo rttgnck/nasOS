@@ -1,14 +1,42 @@
 """Authentication endpoints — login, token refresh, current user."""
 
+import logging
 import platform
+import time
+from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.core.security import create_access_token, get_current_user
 from app.services.user_service import needs_password_change
 
+_log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# ── Simple in-memory rate limiter for login ─────────────────────────
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 300  # 5 minutes
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit(client_ip: str) -> None:
+    """Raise 429 if the client has exceeded the login attempt limit."""
+    now = time.monotonic()
+    attempts = _login_attempts[client_ip]
+    # Prune old entries outside the window
+    _login_attempts[client_ip] = [t for t in attempts if now - t < _WINDOW_SECONDS]
+    if len(_login_attempts[client_ip]) >= _MAX_ATTEMPTS:
+        _log.warning("Rate limit exceeded for login from %s", client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again later.",
+        )
+
+
+def _record_attempt(client_ip: str) -> None:
+    _login_attempts[client_ip].append(time.monotonic())
 
 _is_linux = platform.system() == "Linux"
 
@@ -93,10 +121,14 @@ def authenticate_user(username: str, password: str) -> dict | None:
 # ── Routes ────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, request: Request):
     """Authenticate user and return JWT access token."""
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
+
     user = authenticate_user(body.username, body.password)
     if not user:
+        _record_attempt(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",

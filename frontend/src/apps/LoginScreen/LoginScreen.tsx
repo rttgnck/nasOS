@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Keyboard } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 
@@ -10,6 +10,14 @@ export function LoginScreen() {
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    fetch('/api/system/health')
+      .then((r) => r.json())
+      .then((d) => setVersion(d.version ?? ''))
+      .catch(() => {})
+  }, [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -72,7 +80,7 @@ export function LoginScreen() {
         </form>
 
         <div className="login-footer">
-          <span>v031426-0045</span>
+          <span>{version ? `v${version}` : ''}</span>
           <span className="login-footer-hint">Default login: <strong>admin</strong> / <strong>{import.meta.env.VITE_DEMO ? 'demo' : 'nasos'}</strong></span>
         </div>
       </div>

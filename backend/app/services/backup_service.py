@@ -153,6 +153,13 @@ async def run_backup_now(db: AsyncSession, job_id: int) -> dict:
         await db.commit()
         return {"ok": True, "job_id": job_id, "status": "success"}
 
+    # Validate paths before execution — reject flag injection
+    for path in (job.source, job.destination):
+        if path.strip().startswith("-"):
+            job.last_status = "failed"
+            await db.commit()
+            return {"ok": False, "error": "Invalid path"}
+
     # Real Linux: spawn rsync or rclone subprocess
     try:
         import subprocess
@@ -161,7 +168,7 @@ async def run_backup_now(db: AsyncSession, job_id: int) -> dict:
             proc = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: subprocess.run(
-                    ["rsync", "-avz", "--delete", f"{job.source}/", job.destination],
+                    ["rsync", "-avz", "--delete", "--", f"{job.source}/", job.destination],
                     capture_output=True, text=True, timeout=3600,
                 )
             )

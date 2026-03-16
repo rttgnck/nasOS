@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -9,6 +11,8 @@ from app.services.user_service import (
     get_groups,
     get_users,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -48,7 +52,8 @@ async def add_user(body: UserCreate):
         )
         return user
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log.exception("Failed to create user %s", body.username)
+        raise HTTPException(status_code=500, detail="Failed to create user")
 
 
 @router.delete("/{username}")
@@ -84,4 +89,5 @@ async def set_password(username: str, body: PasswordChange):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log.exception("Failed to change password for %s", username)
+        raise HTTPException(status_code=500, detail="Failed to change password")

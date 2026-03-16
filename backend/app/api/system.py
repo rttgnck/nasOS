@@ -1,3 +1,4 @@
+import logging
 import platform
 import subprocess
 import time
@@ -8,19 +9,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.config import settings
 from app.core.security import get_current_user
 
+_log = logging.getLogger(__name__)
+
+# Public router — health check only (no auth)
+health_router = APIRouter(prefix="/api/system", tags=["system"])
+
+# Protected router — everything else requires JWT
 router = APIRouter(prefix="/api/system", tags=["system"])
 
 _start_time = time.time()
 
 
-@router.get("/health")
+@health_router.get("/health")
 async def health():
     return {"status": "ok", "version": settings.version}
 
 
 @router.get("/info")
 async def system_info():
-    cpu_temp = _get_cpu_temp()
     return {
         "hostname": platform.node(),
         "platform": platform.machine(),
@@ -57,7 +63,7 @@ async def system_metrics():
     }
 
 
-@router.post("/restart", dependencies=[Depends(get_current_user)])
+@router.post("/restart")
 async def system_restart():
     """Restart the system."""
     if settings.dev_mode:
@@ -70,10 +76,11 @@ async def system_restart():
         )
         return {"status": "ok", "message": "System is restarting"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log.exception("Failed to restart system")
+        raise HTTPException(status_code=500, detail="Failed to restart system")
 
 
-@router.post("/shutdown", dependencies=[Depends(get_current_user)])
+@router.post("/shutdown")
 async def system_shutdown():
     """Shut down the system."""
     if settings.dev_mode:
@@ -86,7 +93,8 @@ async def system_shutdown():
         )
         return {"status": "ok", "message": "System is shutting down"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log.exception("Failed to shut down system")
+        raise HTTPException(status_code=500, detail="Failed to shut down system")
 
 
 def _get_cpu_temp() -> float | None:

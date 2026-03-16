@@ -5,10 +5,17 @@ import psutil
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.config import settings
+from app.core.security import verify_ws_token
 
 
 async def metrics_ws(websocket: WebSocket):
     """Stream system metrics to the client every 2 seconds."""
+    token = websocket.query_params.get("token")
+    user = await verify_ws_token(token)
+    if user is None:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     await websocket.accept()
     try:
         while True:

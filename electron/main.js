@@ -70,6 +70,26 @@ app.whenReady().then(() => {
   // This stops DPMS blanking that cage/wlroots triggers after idle time.
   powerSaveBlocker.start('prevent-display-sleep')
 
+  // Set Content-Security-Policy on all responses loaded into the renderer.
+  // This silences Electron's security warning and hardens the app against XSS.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self';" +
+          " connect-src 'self' ws://localhost:* wss://localhost:* http://localhost:*;" +
+          " script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';" +
+          " style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';" +
+          " font-src 'self' https://cdn.jsdelivr.net data:;" +
+          " img-src 'self' data: blob: http://localhost:*;" +
+          " media-src 'self' blob: http://localhost:*;" +
+          " worker-src 'self' blob: https://cdn.jsdelivr.net;"
+        ],
+      },
+    })
+  })
+
   createWindow()
 
   app.on('activate', () => {

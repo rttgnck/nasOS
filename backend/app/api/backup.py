@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -16,6 +16,21 @@ from app.services.backup_service import (
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 
+def _validate_backup_path(value: str, field_name: str) -> str:
+    """Reject paths that could inject flags into rsync/rclone."""
+    # Local paths must be absolute; cloud paths like "b2:bucket" are okay
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{field_name} cannot be empty")
+    if stripped.startswith("-"):
+        raise ValueError(f"{field_name} cannot start with '-'")
+    # Block embedded flag injection via spaces (e.g. "/tmp --delete-excluded")
+    for segment in stripped.split():
+        if segment.startswith("-") and segment != stripped:
+            raise ValueError(f"{field_name} contains invalid flag-like segment")
+    return stripped
+
+
 class BackupJobCreate(BaseModel):
     name: str
     source: str
@@ -23,6 +38,16 @@ class BackupJobCreate(BaseModel):
     dest_type: str = "local"
     schedule: str = "Manual"
     retention: str = "7 days"
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v: str) -> str:
+        return _validate_backup_path(v, "source")
+
+    @field_validator("destination")
+    @classmethod
+    def validate_destination(cls, v: str) -> str:
+        return _validate_backup_path(v, "destination")
 
 
 @router.get("/jobs")
