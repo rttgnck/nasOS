@@ -24,6 +24,9 @@
   <img src="docs/screenshots/desktop.png" alt="nasOS Desktop" width="720">
 </p>
 
+## Live Demo
+View and explore a demo [here](https://rttgnck.github.io/nasOS)
+
 ## What is nasOS?
 
 nasOS turns a Raspberry Pi 5 into a full-featured network-attached storage device with a desktop-class management interface. Unlike headless NAS solutions, nasOS boots directly into a graphical desktop on an attached display — the same interface you see in the browser when you connect remotely.
