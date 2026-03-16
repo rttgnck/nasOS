@@ -40,12 +40,66 @@ success() { echo -e "${GREEN}[nasOS]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[nasOS]${NC} $*"; }
 error()   { echo -e "${RED}[nasOS] ERROR:${NC} $*" >&2; }
 
+# --- Generate build version (date-based, same format as build-ota.sh) ---
+VERSION="$(date +%m%d%y-%H%M%S)"
+
 echo ""
 echo "╔══════════════════════════════════════╗"
 echo "║       nasOS Image Builder            ║"
 echo "║  Raspberry Pi 5 · Bookworm · 64-bit  ║"
+echo "║  Version: $VERSION              ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
+
+# --- Stamp version into all source files ---
+# This ensures the built image contains the correct version everywhere
+# so that version tracking works correctly across OTA updates.
+stamp_version() {
+  local ver="$1"
+  info "Stamping version $ver into source files..."
+
+  # frontend/package.json
+  python3 -c "
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d['version'] = sys.argv[2]
+json.dump(d, open(p, 'w'), indent=2)
+print('', file=open(p, 'a'))  # trailing newline
+" "$PROJECT_ROOT/frontend/package.json" "$ver"
+
+  # electron/package.json
+  python3 -c "
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d['version'] = sys.argv[2]
+json.dump(d, open(p, 'w'), indent=2)
+print('', file=open(p, 'a'))
+" "$PROJECT_ROOT/electron/package.json" "$ver"
+
+  # backend/pyproject.toml
+  python3 -c "
+import sys, re
+p = sys.argv[1]
+content = open(p).read()
+content = re.sub(r'^version = \".*?\"', 'version = \"' + sys.argv[2] + '\"', content, count=1, flags=re.MULTILINE)
+open(p, 'w').write(content)
+" "$PROJECT_ROOT/backend/pyproject.toml" "$ver"
+
+  # backend/app/core/config.py
+  python3 -c "
+import sys, re
+p = sys.argv[1]
+content = open(p).read()
+content = re.sub(r'version: str = \".*?\"', 'version: str = \"' + sys.argv[2] + '\"', content, count=1)
+open(p, 'w').write(content)
+" "$PROJECT_ROOT/backend/app/core/config.py" "$ver"
+
+  success "Version $ver stamped into all source files."
+}
+
+stamp_version "$VERSION"
 
 if [ "$RESIZE_ONLY" = true ]; then
   info "Resize-only mode — skipping build, will resize existing image in deploy/"

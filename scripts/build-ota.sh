@@ -50,6 +50,50 @@ header()  { echo; echo "━━━  $*  ━━━"; }
 
 header "nasOS OTA Update Builder  •  v$VERSION"
 
+# ── 0. Stamp version into source files ──────────────────────────
+# Updates all version references so the built code reflects this OTA version.
+# This is critical for correct rollback tracking — apply-update.sh reads
+# the version from the deployed config.py to record what was previously installed.
+header "Stamping version into source files"
+
+python3 -c "
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d['version'] = sys.argv[2]
+json.dump(d, open(p, 'w'), indent=2)
+print('', file=open(p, 'a'))
+" "$PROJECT_ROOT/frontend/package.json" "$VERSION"
+success "frontend/package.json"
+
+python3 -c "
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d['version'] = sys.argv[2]
+json.dump(d, open(p, 'w'), indent=2)
+print('', file=open(p, 'a'))
+" "$PROJECT_ROOT/electron/package.json" "$VERSION"
+success "electron/package.json"
+
+python3 -c "
+import sys, re
+p = sys.argv[1]
+content = open(p).read()
+content = re.sub(r'^version = \".*?\"', 'version = \"' + sys.argv[2] + '\"', content, count=1, flags=re.MULTILINE)
+open(p, 'w').write(content)
+" "$PROJECT_ROOT/backend/pyproject.toml" "$VERSION"
+success "backend/pyproject.toml"
+
+python3 -c "
+import sys, re
+p = sys.argv[1]
+content = open(p).read()
+content = re.sub(r'version: str = \".*?\"', 'version: str = \"' + sys.argv[2] + '\"', content, count=1)
+open(p, 'w').write(content)
+" "$PROJECT_ROOT/backend/app/core/config.py" "$VERSION"
+success "backend/app/core/config.py"
+
 # ── 1. Build frontend ────────────────────────────────────────────
 header "Building frontend"
 cd "$PROJECT_ROOT/frontend"

@@ -10,7 +10,7 @@ _default_data = Path(__file__).parent.parent.parent / ".data" if _is_dev_platfor
 
 class Settings(BaseSettings):
     app_name: str = "nasOS"
-    version: str = "031426-0045"
+    version: str = "031626-004633"
     debug: bool = False
 
     # Paths — auto-detects dev vs production

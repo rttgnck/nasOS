@@ -170,7 +170,16 @@ for component in $COMPONENTS; do
   fi
 done
 
-# Record what was backed up and its version
+# Record what was backed up and its version.
+# Source .env first so NASOS_VERSION (set by previous OTA or image build) is
+# available as an env var.  Without this, pydantic-settings falls back to the
+# hardcoded default in config.py, which is the version baked into the source
+# code — potentially stale if multiple OTAs have been applied since the image
+# was flashed.  The .env value is always the ground truth for what version is
+# currently running.
+if [[ -f "$NASOS_DIR/.env" ]]; then
+  set -a; source "$NASOS_DIR/.env"; set +a
+fi
 CURRENT_VERSION=$(PYTHONPATH="$NASOS_DIR/backend" "$NASOS_DIR/venv/bin/python3" -c \
   "from app.core.config import settings; print(settings.version)" \
   2>/dev/null || echo "unknown")

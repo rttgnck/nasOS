@@ -56,6 +56,15 @@ echo ">>> [03-install-nasos/chroot] Setting ownership..."
 
 chown -R nasos:nasos "$NASOS_DIR"
 
+echo ">>> [03-install-nasos/chroot] Writing initial version to .env..."
+# Read the version from backend config.py (stamped by build.sh before this runs)
+NASOS_VER=$(PYTHONPATH="$NASOS_DIR/backend" "$NASOS_DIR/venv/bin/python3" -c \
+  "from app.core.config import settings; print(settings.version)" 2>/dev/null || echo "unknown")
+# Write to .env so the backend service picks it up via EnvironmentFile
+sed -i '/^NASOS_VERSION=/d' "$NASOS_DIR/.env" 2>/dev/null || true
+echo "NASOS_VERSION=$NASOS_VER" >> "$NASOS_DIR/.env"
+echo "    NASOS_VERSION=$NASOS_VER written to .env"
+
 echo ">>> [03-install-nasos/chroot] Verifying install..."
 "$NASOS_DIR/venv/bin/python3" -c "import fastapi; import uvicorn; print('    backend imports OK')"
 node --version | xargs echo "    Node version:"

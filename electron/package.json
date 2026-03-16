@@ -1,6 +1,6 @@
 {
   "name": "nasos-electron",
-  "version": "031426-0045",
+  "version": "031626-004633",
   "private": true,
   "main": "main.js",
   "scripts": {
