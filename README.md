@@ -5,7 +5,7 @@
 <h1 align="center">nasOS</h1>
 
 <p align="center">
-  A full NAS operating system for Raspberry Pi 5 — boots into a desktop environment<br>
+  A NAS management platform for Raspberry Pi 5 — boots into a desktop environment<br>
   on a connected display and is accessible remotely from any web browser.
 </p>
 
@@ -26,7 +26,9 @@
 
 ## What is nasOS?
 
-nasOS turns a Raspberry Pi 5 into a full-featured network-attached storage device with a desktop-class management interface. Unlike headless NAS solutions, nasOS boots directly into a graphical desktop on an attached display — the same interface you see in the browser when you connect remotely.
+nasOS is a NAS management platform that turns a Raspberry Pi 5 into a full-featured network-attached storage device. It runs on top of Raspberry Pi OS Lite (Debian Bookworm) — the same way Synology DSM runs on Linux, or UGOS Pro runs on Linux. nasOS is the management layer: the interface, the API, and the tooling that makes the Pi behave like a dedicated NAS appliance.
+
+Unlike headless NAS solutions, nasOS boots directly into a graphical desktop on an attached display — the same interface you see in the browser when you connect remotely.
 
 The desktop is a custom window manager built entirely in React with draggable, resizable, snappable windows, a taskbar, system tray, notifications, and keyboard shortcuts like Alt+Tab. Every management task — files, storage, shares, Docker containers, backups, users, network, security — has its own windowed application.
 
@@ -136,7 +138,7 @@ View and explore a live demo [here](https://rttgnck.github.io/nasOS)
 
 | Layer | Technology |
 |-------|-----------|
-| Base OS | Raspberry Pi OS Lite (Bookworm, 64-bit) via pi-gen |
+| Base OS | Raspberry Pi OS Lite (Bookworm, 64-bit) via pi-gen — nasOS runs on top of this |
 | Backend | Python 3.11+ / FastAPI / uvicorn |
 | Database | SQLite via SQLAlchemy (async) + aiosqlite |
 | Frontend | React 18 + TypeScript 5.6 / Vite 6 / zustand 5 |
