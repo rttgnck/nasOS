@@ -510,40 +510,103 @@ async def stream_file(
     )
 
 
-# --- Transcode (for non-browser-native video formats) ---
+# --- Media info (ffprobe) ---
 
-async def _ffprobe_codecs(file_path: str) -> tuple[str, str]:
-    """Return (video_codec, audio_codec) for a file using ffprobe."""
+async def _ffprobe_full(file_path: str) -> dict:
+    """Run ffprobe and return the parsed JSON with streams + format info."""
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "quiet", "-print_format", "json",
-            "-show_streams", file_path,
+            "-show_streams", "-show_format", file_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        data = json.loads(stdout)
-        v_codec = ""
-        a_codec = ""
-        for s in data.get("streams", []):
-            if s.get("codec_type") == "video" and not v_codec:
-                v_codec = s.get("codec_name", "")
-            elif s.get("codec_type") == "audio" and not a_codec:
-                a_codec = s.get("codec_name", "")
-        return v_codec, a_codec
+        return json.loads(stdout)
     except Exception as e:
         _log.warning("ffprobe failed for %s: %s", file_path, e)
-        return "", ""
+        return {}
 
+
+async def _ffprobe_codecs(file_path: str) -> tuple[str, str]:
+    """Return (video_codec, audio_codec) for a file using ffprobe."""
+    data = await _ffprobe_full(file_path)
+    v_codec = ""
+    a_codec = ""
+    for s in data.get("streams", []):
+        if s.get("codec_type") == "video" and not v_codec:
+            v_codec = s.get("codec_name", "")
+        elif s.get("codec_type") == "audio" and not a_codec:
+            a_codec = s.get("codec_name", "")
+    return v_codec, a_codec
+
+
+@router.get("/media-info")
+async def media_info(
+    path: str = Query(..., description="Media file to probe"),
+):
+    """Return duration and codec info for a media file via ffprobe."""
+    target = _safe_path(path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    data = await _ffprobe_full(str(target))
+    if not data:
+        raise HTTPException(status_code=500, detail="ffprobe failed")
+
+    fmt = data.get("format", {})
+    duration = None
+    try:
+        duration = float(fmt.get("duration", 0))
+    except (ValueError, TypeError):
+        pass
+
+    # Fall back to stream-level duration
+    if not duration:
+        for s in data.get("streams", []):
+            try:
+                d = float(s.get("duration", 0))
+                if d > 0:
+                    duration = d
+                    break
+            except (ValueError, TypeError):
+                continue
+
+    v_codec = ""
+    a_codec = ""
+    width = 0
+    height = 0
+    for s in data.get("streams", []):
+        if s.get("codec_type") == "video" and not v_codec:
+            v_codec = s.get("codec_name", "")
+            width = s.get("width", 0)
+            height = s.get("height", 0)
+        elif s.get("codec_type") == "audio" and not a_codec:
+            a_codec = s.get("codec_name", "")
+
+    return {
+        "duration": duration or 0,
+        "video_codec": v_codec,
+        "audio_codec": a_codec,
+        "width": width,
+        "height": height,
+        "format": fmt.get("format_name", ""),
+        "size_bytes": int(fmt.get("size", 0)),
+    }
+
+
+# --- Transcode (for non-browser-native video formats) ---
 
 @router.get("/transcode")
 async def transcode_file(
     path: str = Query(..., description="Video file to transcode"),
+    ss: float = Query(0, description="Start time in seconds for seeking"),
 ):
     """Transcode a video file to fragmented MP4 for browser playback.
 
     Uses ``-c copy`` when the source already uses H.264/AAC (instant remux),
-    otherwise re-encodes with libx264 ultrafast.
+    otherwise re-encodes with libx264 ultrafast.  Accepts an optional ``ss``
+    parameter to start from a given timestamp (enables seek-ahead).
     """
     target = _safe_path(path)
     if not target.exists() or not target.is_file():
@@ -551,15 +614,25 @@ async def transcode_file(
 
     v_codec, a_codec = await _ffprobe_codecs(str(target))
 
-    # H.264 streams can be remuxed directly into MP4
-    v_args = ["-c:v", "copy"] if v_codec in ("h264", "h265", "hevc") else [
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-    ]
-    # AAC audio can be copied; everything else gets transcoded
-    a_args = ["-c:a", "copy"] if a_codec == "aac" else ["-c:a", "aac", "-b:a", "192k"]
+    # Build input args — put -ss before -i for fast input seeking
+    input_args: list[str] = []
+    if ss > 0:
+        input_args += ["-ss", str(ss)]
+    input_args += ["-i", str(target)]
+
+    # When seeking, we must re-encode because -c copy with -ss can produce
+    # broken output (missing keyframes). Only use copy when starting from 0.
+    if ss > 0:
+        v_args = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+        a_args = ["-c:a", "aac", "-b:a", "192k"]
+    else:
+        v_args = ["-c:v", "copy"] if v_codec in ("h264", "h265", "hevc") else [
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        ]
+        a_args = ["-c:a", "copy"] if a_codec == "aac" else ["-c:a", "aac", "-b:a", "192k"]
 
     cmd = [
-        "ffmpeg", "-i", str(target),
+        "ffmpeg", *input_args,
         *v_args, *a_args,
         "-movflags", "frag_keyframe+empty_moov+default_base_moof",
         "-f", "mp4",

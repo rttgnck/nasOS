@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ZoomIn, ZoomOut, RotateCw, Maximize2, Download, AlertCircle, Loader, Play, Pause, Volume2, VolumeX, Maximize } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
+import { api } from '../../hooks/useApi'
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
 const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v', 'ogv', 'flv', 'wmv', 'ts', 'mpg', 'mpeg', '3gp'])
@@ -88,6 +89,7 @@ export function MediaViewer({ filePath, fileName, fileType }: MediaViewerProps) 
     return (
       <VideoPlayer
         ext={ext}
+        filePath={filePath}
         streamUrl={streamUrl}
         transcodeUrl={transcodeUrl}
         fileName={fileName}
@@ -158,12 +160,14 @@ function fmtTime(s: number): string {
 
 function VideoPlayer({
   ext,
+  filePath,
   streamUrl,
   transcodeUrl,
   fileName,
   onDownload,
 }: {
   ext: string
+  filePath: string
   streamUrl: string
   transcodeUrl: string
   fileName: string
@@ -171,23 +175,43 @@ function VideoPlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
+  const seekingRef = useRef(false)
   const isNative = NATIVE_VIDEO.has(ext)
+
+  // ssOffset tracks the -ss value sent to the transcode endpoint.
+  // For transcoded streams, video.currentTime starts at 0 from the
+  // transcode start point, so the real playback position = ssOffset + video.currentTime.
+  const ssOffsetRef = useRef(0)
+
   const [src, setSrc] = useState(isNative ? streamUrl : transcodeUrl)
   const [transcoding, setTranscoding] = useState(!isNative)
   const [error, setError] = useState<string | null>(null)
   const triedTranscode = useRef(!isNative)
+  const isTranscoded = useRef(!isNative)
 
-  const [playing, setPlaying] = useState(true)
+  const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [totalDuration, setTotalDuration] = useState(0)
   const [bufferedEnd, setBufferedEnd] = useState(0)
+  const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
-  const [seeking, setSeeking] = useState(false)
+
+  // Fetch the real total duration from ffprobe on mount
+  useEffect(() => {
+    const encodedPath = encodeURIComponent(filePath)
+    api<{ duration: number }>(`/api/files/media-info?path=${encodedPath}`)
+      .then((info) => {
+        if (info.duration > 0) setTotalDuration(info.duration)
+      })
+      .catch(() => {})
+  }, [filePath])
 
   const handleError = () => {
     if (!triedTranscode.current) {
       triedTranscode.current = true
+      isTranscoded.current = true
       setTranscoding(true)
+      ssOffsetRef.current = 0
       setSrc(transcodeUrl)
       return
     }
@@ -198,50 +222,62 @@ function VideoPlayer({
     setTranscoding(false)
   }
 
-  const updateBuffered = useCallback(() => {
-    const v = videoRef.current
-    if (!v) return
-    if (v.buffered.length > 0) {
-      setBufferedEnd(v.buffered.end(v.buffered.length - 1))
-    }
-  }, [])
-
+  // Wire up video element events (only once, no state deps)
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
 
-    const onTimeUpdate = () => {
-      if (!seeking) setCurrentTime(v.currentTime)
-      updateBuffered()
+    const syncState = () => {
+      if (!seekingRef.current) {
+        setCurrentTime(ssOffsetRef.current + v.currentTime)
+      }
+      if (v.buffered.length > 0) {
+        setBufferedEnd(ssOffsetRef.current + v.buffered.end(v.buffered.length - 1))
+      }
     }
-    const onDurationChange = () => {
-      if (isFinite(v.duration)) setDuration(v.duration)
+
+    const onDuration = () => {
+      // For native files, the browser knows the real duration
+      if (!isTranscoded.current && isFinite(v.duration) && v.duration > 0) {
+        setTotalDuration(v.duration)
+      }
     }
-    const onProgress = () => updateBuffered()
+
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
+    const onVolumeChange = () => {
+      setMuted(v.muted)
+      setVolume(v.volume)
+    }
 
-    v.addEventListener('timeupdate', onTimeUpdate)
-    v.addEventListener('durationchange', onDurationChange)
-    v.addEventListener('progress', onProgress)
+    v.addEventListener('timeupdate', syncState)
+    v.addEventListener('progress', syncState)
+    v.addEventListener('durationchange', onDuration)
+    v.addEventListener('loadedmetadata', onDuration)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
-    v.addEventListener('loadedmetadata', onDurationChange)
+    v.addEventListener('volumechange', onVolumeChange)
+
+    // Sync initial state
+    onDuration()
+    onVolumeChange()
+    setPlaying(!v.paused)
 
     return () => {
-      v.removeEventListener('timeupdate', onTimeUpdate)
-      v.removeEventListener('durationchange', onDurationChange)
-      v.removeEventListener('progress', onProgress)
+      v.removeEventListener('timeupdate', syncState)
+      v.removeEventListener('progress', syncState)
+      v.removeEventListener('durationchange', onDuration)
+      v.removeEventListener('loadedmetadata', onDuration)
       v.removeEventListener('play', onPlay)
       v.removeEventListener('pause', onPause)
-      v.removeEventListener('loadedmetadata', onDurationChange)
+      v.removeEventListener('volumechange', onVolumeChange)
     }
-  }, [seeking, updateBuffered])
+  }, [])
 
   const togglePlay = () => {
     const v = videoRef.current
     if (!v) return
-    if (v.paused) v.play()
+    if (v.paused) v.play().catch(() => {})
     else v.pause()
   }
 
@@ -249,27 +285,81 @@ function VideoPlayer({
     const v = videoRef.current
     if (!v) return
     v.muted = !v.muted
-    setMuted(v.muted)
   }
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = videoRef.current
-    const bar = progressRef.current
-    if (!v || !bar || !duration) return
+    if (!v) return
+    const val = parseFloat(e.target.value)
+    v.volume = val
+    if (val > 0 && v.muted) v.muted = false
+  }
+
+  // Seek to a position in the video. For native formats, just set currentTime.
+  // For transcoded content, if the target is outside the buffered range, restart
+  // the transcode with -ss to jump there.
+  const seekToTime = (targetTime: number) => {
+    const v = videoRef.current
+    if (!v || totalDuration <= 0) return
+
+    const clamped = Math.max(0, Math.min(targetTime, totalDuration))
+    setCurrentTime(clamped)
+
+    if (!isTranscoded.current) {
+      // Native — browser handles range seeking
+      v.currentTime = clamped
+      return
+    }
+
+    // For transcoded: check if the target falls within the already-buffered window
+    const localTarget = clamped - ssOffsetRef.current
+    const localBuffered = v.buffered.length > 0
+      ? v.buffered.end(v.buffered.length - 1)
+      : 0
+
+    if (localTarget >= 0 && localTarget <= localBuffered) {
+      // Within buffered range — just seek locally
+      v.currentTime = localTarget
+    } else {
+      // Outside buffer — restart transcode from the new position
+      ssOffsetRef.current = clamped
+      setBufferedEnd(clamped)
+      const encodedPath = encodeURIComponent(filePath)
+      const token = useAuthStore.getState().token
+      const sep = '?'
+      let url = `/api/files/transcode${sep}path=${encodedPath}&ss=${clamped}`
+      if (token) url += `&token=${encodeURIComponent(token)}`
+      setTranscoding(true)
+      setSrc(url)
+      // The video element will reload and autoPlay from the new src
+    }
+  }
+
+  const handleProgressDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (totalDuration <= 0) return
+    seekingRef.current = true
+    const bar = progressRef.current!
     const rect = bar.getBoundingClientRect()
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    v.currentTime = pct * duration
-    setCurrentTime(v.currentTime)
-  }
+    setCurrentTime(pct * totalDuration)
 
-  const handleProgressDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.buttons !== 1) return
-    setSeeking(true)
-    handleProgressClick(e)
-  }
+    const onMove = (me: MouseEvent) => {
+      const r = bar.getBoundingClientRect()
+      const p = Math.max(0, Math.min(1, (me.clientX - r.left) / r.width))
+      setCurrentTime(p * totalDuration)
+    }
 
-  const handleProgressUp = () => {
-    setSeeking(false)
+    const onUp = (me: MouseEvent) => {
+      seekingRef.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      const r = bar.getBoundingClientRect()
+      const p = Math.max(0, Math.min(1, (me.clientX - r.left) / r.width))
+      seekToTime(p * totalDuration)
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
   }
 
   const toggleFullscreen = () => {
@@ -279,8 +369,8 @@ function VideoPlayer({
     else el.requestFullscreen()
   }
 
-  const playedPct = duration > 0 ? (currentTime / duration) * 100 : 0
-  const bufferedPct = duration > 0 ? (bufferedEnd / duration) * 100 : 0
+  const playedPct = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0
+  const bufferedPct = totalDuration > 0 ? (bufferedEnd / totalDuration) * 100 : 0
 
   if (error) {
     return (
@@ -309,6 +399,7 @@ function VideoPlayer({
           ref={videoRef}
           autoPlay
           preload="auto"
+          playsInline
           onClick={togglePlay}
           onError={handleError}
           onCanPlay={handleCanPlay}
@@ -330,21 +421,27 @@ function VideoPlayer({
           <div
             className="mv-progress-bar"
             ref={progressRef}
-            onClick={handleProgressClick}
-            onMouseDown={handleProgressDrag}
-            onMouseMove={handleProgressDrag}
-            onMouseUp={handleProgressUp}
-            onMouseLeave={handleProgressUp}
+            onMouseDown={handleProgressDown}
           >
             <div className="mv-progress-total" />
             <div className="mv-progress-buffered" style={{ width: `${bufferedPct}%` }} />
             <div className="mv-progress-played" style={{ width: `${playedPct}%` }} />
             <div className="mv-progress-thumb" style={{ left: `${playedPct}%` }} />
           </div>
-          <span className="mv-time-label">{fmtTime(duration)}</span>
+          <span className="mv-time-label">{fmtTime(totalDuration)}</span>
           <button className="mv-ctrl-btn" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
             {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
+          <input
+            type="range"
+            className="mv-volume-slider"
+            min={0}
+            max={1}
+            step={0.05}
+            value={muted ? 0 : volume}
+            onChange={handleVolumeChange}
+            title={`Volume ${Math.round(volume * 100)}%`}
+          />
           <button className="mv-ctrl-btn" onClick={toggleFullscreen} title="Fullscreen">
             <Maximize size={15} />
           </button>

@@ -94,6 +94,8 @@ function handleApi(url: URL, init?: RequestInit): Response {
     )
     return jsonResponse({ results: matches })
   }
+  if (p === '/api/files/media-info')
+    return jsonResponse({ duration: 185.4, video_codec: 'h264', audio_codec: 'aac', width: 1920, height: 1080, format: 'mov,mp4,m4a,3gp,3g2,mj2', size_bytes: 52428800 })
   if (p === '/api/files/upload') return ok()
   if (p === '/api/files/delete') return ok()
   if (p === '/api/files/mkdir')  return ok()
