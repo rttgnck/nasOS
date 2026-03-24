@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Box, HardDrive, Wifi, WifiOff } from 'lucide-react'
+import { Activity, Box, HardDrive, Share2, Wifi, WifiOff } from 'lucide-react'
 import { useSystemStore } from '../store/systemStore'
 import { useWidgetStore, type CustomWidget, type WidgetConfig } from '../store/widgetStore'
 import { FileOpsWidget } from './FileOpsWidget'
@@ -9,6 +9,14 @@ const formatBytes = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B/s`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`
+}
+
+const formatSize = (bytes: number) => {
+  if (bytes === 0) return '0 B'
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (bytes < 1024 ** 4) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  return `${(bytes / 1024 ** 4).toFixed(2)} TB`
 }
 
 // ── Clock Widget ────────────────────────────────────────────────
@@ -122,9 +130,84 @@ interface NetIface {
   speed: string
 }
 
+function smoothPath(pts: [number, number][]): string {
+  if (pts.length < 2) return ''
+  const d = [`M${pts[0]![0]},${pts[0]![1]}`]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)]!
+    const p1 = pts[i]!
+    const p2 = pts[i + 1]!
+    const p3 = pts[Math.min(pts.length - 1, i + 2)]!
+    const tension = 0.35
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension
+    d.push(`C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`)
+  }
+  return d.join(' ')
+}
+
+function NetworkGraph({ up, down }: { up: number[]; down: number[] }) {
+  const width = 200
+  const halfH = 36
+  const height = halfH * 2
+  const mid = halfH
+
+  const maxUp = Math.max(...up, 1)
+  const maxDown = Math.max(...down, 1)
+  const scale = Math.max(maxUp, maxDown, 1)
+
+  const len = Math.max(up.length, down.length)
+  if (len < 2) {
+    return (
+      <svg width={width} height={height} className="dw-netgraph">
+        <line x1="0" y1={mid} x2={width} y2={mid} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+      </svg>
+    )
+  }
+
+  const upPts: [number, number][] = up.map((v, i) => [
+    (i / (len - 1)) * width,
+    mid - (v / scale) * (halfH - 2),
+  ])
+  const downPts: [number, number][] = down.map((v, i) => [
+    (i / (len - 1)) * width,
+    mid + (v / scale) * (halfH - 2),
+  ])
+
+  const upCurve = smoothPath(upPts)
+  const downCurve = smoothPath(downPts)
+  const lastX = width
+
+  const upFill = `${upCurve} L${lastX},${mid} L0,${mid} Z`
+  const downFill = `${downCurve} L${lastX},${mid} L0,${mid} Z`
+
+  return (
+    <svg width={width} height={height} className="dw-netgraph" viewBox={`0 0 ${width} ${height}`}>
+      <defs>
+        <linearGradient id="gw-up-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4fc3f7" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#4fc3f7" stopOpacity="0.03" />
+        </linearGradient>
+        <linearGradient id="gw-down-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#81c784" stopOpacity="0.03" />
+          <stop offset="100%" stopColor="#81c784" stopOpacity="0.45" />
+        </linearGradient>
+      </defs>
+      <path d={upFill} fill="url(#gw-up-grad)" />
+      <path d={upCurve} fill="none" stroke="#4fc3f7" strokeWidth="1.5" />
+      <path d={downFill} fill="url(#gw-down-grad)" />
+      <path d={downCurve} fill="none" stroke="#81c784" strokeWidth="1.5" />
+      <line x1="0" y1={mid} x2={width} y2={mid} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+    </svg>
+  )
+}
+
 function NetworkWidget({ config }: { config: WidgetConfig }) {
-  const { metrics, isConnected } = useSystemStore()
+  const { metrics, history, isConnected } = useSystemStore()
   const [ifaces, setIfaces] = useState<NetIface[] | null>(null)
+  const [connectedSince] = useState(() => Date.now())
 
   useEffect(() => {
     const load = () => {
@@ -137,7 +220,22 @@ function NetworkWidget({ config }: { config: WidgetConfig }) {
     return () => clearInterval(interval)
   }, [])
 
-  const active = ifaces?.find(i => i.state === 'up')
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - connectedSince) / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [connectedSince])
+
+  const fmtTime = (sec: number) => {
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    const s = sec % 60
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+  }
+
+  const activeIfaces = ifaces?.filter(i => i.state === 'up') ?? []
 
   return (
     <div className="dw-card dw-network">
@@ -145,28 +243,28 @@ function NetworkWidget({ config }: { config: WidgetConfig }) {
         {isConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
         <span>Network</span>
       </div>
-      {active ? (
-        <>
+      {activeIfaces.length > 0 ? activeIfaces.map((iface) => (
+        <div key={iface.name} className="dw-net-iface">
           {config.networkShowInterface !== false && (
             <div className="dw-kv-row">
-              <span className="dw-kv-label">{active.name}</span>
-              {active.speed && <span className="dw-kv-value">{active.speed}</span>}
+              <span className="dw-kv-label">{iface.name}</span>
+              <span className="dw-kv-value">{iface.speed || fmtTime(elapsed)}</span>
             </div>
           )}
           {config.networkShowIp !== false && (
             <div className="dw-kv-row">
               <span className="dw-kv-label">IP</span>
-              <span className="dw-kv-value dw-mono">{active.ipv4}</span>
+              <span className="dw-kv-value dw-mono">{iface.ipv4}</span>
             </div>
           )}
-          {config.networkShowGateway !== false && active.gateway && (
+          {config.networkShowGateway !== false && iface.gateway && (
             <div className="dw-kv-row">
               <span className="dw-kv-label">Gateway</span>
-              <span className="dw-kv-value dw-mono">{active.gateway}</span>
+              <span className="dw-kv-value dw-mono">{iface.gateway}</span>
             </div>
           )}
-        </>
-      ) : (
+        </div>
+      )) : (
         <div className="dw-kv-row">
           <span className="dw-kv-label" style={{ opacity: 0.5 }}>
             {ifaces === null ? 'Loading…' : 'No active interface'}
@@ -174,8 +272,11 @@ function NetworkWidget({ config }: { config: WidgetConfig }) {
         </div>
       )}
       <div className="dw-network-throughput">
-        <span>↑ {formatBytes(metrics.netSentPerSec)}</span>
-        <span>↓ {formatBytes(metrics.netRecvPerSec)}</span>
+        <span className="dw-net-up">↑ {formatBytes(metrics.netSentPerSec)}</span>
+        <span className="dw-net-down">↓ {formatBytes(metrics.netRecvPerSec)}</span>
+      </div>
+      <div className="dw-net-graph">
+        <NetworkGraph up={history.netSent} down={history.netRecv} />
       </div>
     </div>
   )
@@ -183,12 +284,23 @@ function NetworkWidget({ config }: { config: WidgetConfig }) {
 
 // ── Storage Overview Widget ─────────────────────────────────────
 
+interface PartitionInfo {
+  name: string
+  size_bytes: number
+  fstype: string | null
+  mountpoint: string | null
+  used_bytes: number
+  percent: number
+}
+
 interface DiskInfo {
   name: string
-  mount: string
-  total_gb: number
-  used_gb: number
+  path: string
+  size_bytes: number
+  used_bytes: number
   percent: number
+  model: string
+  partitions: PartitionInfo[]
 }
 
 function StorageWidget() {
@@ -216,24 +328,107 @@ function StorageWidget() {
       ) : disks.length === 0 ? (
         <div className="dw-widget-empty">No disks detected</div>
       ) : (
-        disks.slice(0, 3).map((d) => {
-          const pct = d.percent ?? (d.total_gb > 0 ? (d.used_gb / d.total_gb) * 100 : 0)
-          return (
-            <div key={d.name} className="dw-storage-row">
-              <div className="dw-storage-header">
-                <span className="dw-kv-label">{d.name}</span>
-                <span className="dw-kv-value">{pct.toFixed(0)}%</span>
-              </div>
-              <div className="dw-stat-bar">
-                <div
-                  className="dw-stat-fill"
-                  style={{ width: `${pct}%` }}
-                  data-level={pct > 90 ? 'high' : pct > 70 ? 'mid' : 'low'}
-                />
-              </div>
+        disks.map((disk) => (
+          <div key={disk.name} className="dw-storage-disk">
+            <div className="dw-storage-header">
+              <span className="dw-kv-label" title={disk.model}>{disk.name}</span>
+              <span className="dw-kv-value">
+                {disk.percent.toFixed(0)}% · {formatSize(disk.size_bytes)}
+              </span>
             </div>
-          )
-        })
+            <div className="dw-stat-bar">
+              <div
+                className="dw-stat-fill"
+                style={{ width: `${disk.percent}%` }}
+                data-level={disk.percent > 90 ? 'high' : disk.percent > 70 ? 'mid' : 'low'}
+              />
+            </div>
+            {disk.partitions.length > 0 && (
+              <div className="dw-storage-parts">
+                {disk.partitions.filter(p => p.mountpoint).map((part) => (
+                  <div key={part.name} className="dw-storage-part">
+                    <div className="dw-storage-part-header">
+                      <span className="dw-part-label">{part.mountpoint}</span>
+                      <span className="dw-part-value">{part.percent.toFixed(0)}%</span>
+                    </div>
+                    <div className="dw-stat-bar dw-part-bar">
+                      <div
+                        className="dw-stat-fill dw-part-fill"
+                        style={{ width: `${part.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+// ── Shares Widget ──────────────────────────────────────────────
+
+interface ShareInfo {
+  id: number
+  name: string
+  path: string
+  protocol: string
+  enabled: boolean
+  total_bytes: number
+  used_bytes: number
+  percent: number
+}
+
+function SharesWidget() {
+  const [shares, setShares] = useState<ShareInfo[] | null>(null)
+
+  useEffect(() => {
+    const load = () => {
+      api<{ shares: ShareInfo[] }>('/api/shares/usage')
+        .then((d) => setShares(d.shares))
+        .catch(() => setShares([]))
+    }
+    load()
+    const interval = setInterval(load, 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="dw-card dw-shares">
+      <div className="dw-widget-title">
+        <Share2 size={12} />
+        <span>Shares</span>
+      </div>
+      {shares === null ? (
+        <div className="dw-widget-empty">Loading…</div>
+      ) : shares.length === 0 ? (
+        <div className="dw-widget-empty">No shares configured</div>
+      ) : (
+        shares.filter(s => s.enabled).map((share) => (
+          <div key={share.id} className="dw-storage-disk">
+            <div className="dw-storage-header">
+              <span className="dw-kv-label">{share.name}</span>
+              <span className="dw-kv-value">
+                {share.total_bytes > 0 ? `${share.percent.toFixed(0)}%` : '—'} · {share.protocol.toUpperCase()}
+              </span>
+            </div>
+            {share.total_bytes > 0 && (
+              <>
+                <div className="dw-stat-bar">
+                  <div
+                    className="dw-stat-fill dw-share-fill"
+                    style={{ width: `${share.percent}%` }}
+                  />
+                </div>
+                <div className="dw-share-detail">
+                  {formatSize(share.used_bytes)} / {formatSize(share.total_bytes)}
+                </div>
+              </>
+            )}
+          </div>
+        ))
       )}
     </div>
   )
@@ -408,6 +603,7 @@ export function DesktopWidgets() {
           case 'file-ops': return <FileOpsWidget key={id} />
           case 'network': return <NetworkWidget key={id} config={config} />
           case 'storage': return <StorageWidget key={id} />
+          case 'shares': return <SharesWidget key={id} />
           case 'docker': return <DockerWidget key={id} />
           case 'uptime': return <UptimeWidget key={id} config={config} />
           default: return null

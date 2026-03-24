@@ -8,6 +8,7 @@ from app.services.share_service import (
     delete_share,
     get_share,
     list_shares,
+    list_shares_with_usage,
     toggle_share,
     update_share,
 )
@@ -42,6 +43,13 @@ class ShareUpdate(BaseModel):
 async def get_shares(db: AsyncSession = Depends(get_db)):
     """List all configured shares."""
     shares = await list_shares(db)
+    return {"shares": shares}
+
+
+@router.get("/usage")
+async def get_shares_usage(db: AsyncSession = Depends(get_db)):
+    """List all shares with disk usage statistics."""
+    shares = await list_shares_with_usage(db)
     return {"shares": shares}
 
 

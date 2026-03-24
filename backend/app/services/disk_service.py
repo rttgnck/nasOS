@@ -82,17 +82,36 @@ def _get_disks_linux() -> list[dict]:
                 continue
             partitions = []
             for child in dev.get("children", []):
+                mp = child.get("mountpoint")
+                used_bytes = 0
+                total_bytes = child.get("size") or 0
+                percent = 0.0
+                if mp:
+                    try:
+                        usage = psutil.disk_usage(mp)
+                        used_bytes = usage.used
+                        total_bytes = usage.total
+                        percent = usage.percent
+                    except (PermissionError, OSError):
+                        pass
                 partitions.append({
                     "name": child.get("name"),
-                    "size_bytes": child.get("size"),
+                    "size_bytes": total_bytes,
                     "fstype": child.get("fstype"),
-                    "mountpoint": child.get("mountpoint"),
+                    "mountpoint": mp,
                     "uuid": child.get("uuid"),
+                    "used_bytes": used_bytes,
+                    "percent": percent,
                 })
+            disk_size = dev.get("size") or 0
+            total_used = sum(p["used_bytes"] for p in partitions)
+            disk_pct = (total_used / disk_size * 100) if disk_size > 0 else 0.0
             disks.append({
                 "name": dev.get("name"),
                 "path": f"/dev/{dev.get('name')}",
-                "size_bytes": dev.get("size"),
+                "size_bytes": disk_size,
+                "used_bytes": total_used,
+                "percent": round(disk_pct, 1),
                 "model": (dev.get("model") or "").strip(),
                 "serial": (dev.get("serial") or "").strip(),
                 "vendor": (dev.get("vendor") or "").strip(),
@@ -150,33 +169,39 @@ def _get_disks_mock() -> list[dict]:
             "name": "sda",
             "path": "/dev/sda",
             "size_bytes": 1000204886016,
+            "used_bytes": 420_000_000_000,
+            "percent": 42.0,
             "model": "WDC WD10EZEX-00W",
             "serial": "WD-WMC4N0K0FAKE",
             "vendor": "Western Digital",
             "transport": "sata",
             "rotational": True,
             "partitions": [
-                {"name": "sda1", "size_bytes": 536870912, "fstype": "vfat", "mountpoint": "/boot/efi", "uuid": "ABCD-1234"},
-                {"name": "sda2", "size_bytes": 999667015680, "fstype": "ext4", "mountpoint": "/mnt/data", "uuid": "a1b2c3d4-e5f6-7890"},
+                {"name": "sda1", "size_bytes": 536870912, "fstype": "vfat", "mountpoint": "/boot/efi", "uuid": "ABCD-1234", "used_bytes": 32_000_000, "percent": 6.0},
+                {"name": "sda2", "size_bytes": 999667015680, "fstype": "ext4", "mountpoint": "/mnt/data", "uuid": "a1b2c3d4-e5f6-7890", "used_bytes": 420_000_000_000, "percent": 42.0},
             ],
         },
         {
             "name": "sdb",
             "path": "/dev/sdb",
             "size_bytes": 2000398934016,
+            "used_bytes": 1_520_000_000_000,
+            "percent": 76.0,
             "model": "Samsung SSD 870",
             "serial": "S5FAKE123456",
             "vendor": "Samsung",
             "transport": "sata",
             "rotational": False,
             "partitions": [
-                {"name": "sdb1", "size_bytes": 2000398934016, "fstype": "ext4", "mountpoint": "/mnt/ssd", "uuid": "f1e2d3c4-b5a6-7890"},
+                {"name": "sdb1", "size_bytes": 2000398934016, "fstype": "ext4", "mountpoint": "/mnt/ssd", "uuid": "f1e2d3c4-b5a6-7890", "used_bytes": 1_520_000_000_000, "percent": 76.0},
             ],
         },
         {
             "name": "sdc",
             "path": "/dev/sdc",
             "size_bytes": 4000787030016,
+            "used_bytes": 0,
+            "percent": 0,
             "model": "Seagate IronWolf",
             "serial": "ZA40FAKE7890",
             "vendor": "Seagate",
@@ -188,14 +213,16 @@ def _get_disks_mock() -> list[dict]:
             "name": "nvme0n1",
             "path": "/dev/nvme0n1",
             "size_bytes": 500107862016,
+            "used_bytes": 185_000_000_000,
+            "percent": 37.0,
             "model": "NVMe Samsung 980 PRO",
             "serial": "S6FKNV0FAKE",
             "vendor": "Samsung",
             "transport": "nvme",
             "rotational": False,
             "partitions": [
-                {"name": "nvme0n1p1", "size_bytes": 268435456, "fstype": "vfat", "mountpoint": "/boot", "uuid": "BOOT-0001"},
-                {"name": "nvme0n1p2", "size_bytes": 499839426560, "fstype": "btrfs", "mountpoint": "/", "uuid": "root-uuid-0001"},
+                {"name": "nvme0n1p1", "size_bytes": 268435456, "fstype": "vfat", "mountpoint": "/boot", "uuid": "BOOT-0001", "used_bytes": 45_000_000, "percent": 16.7},
+                {"name": "nvme0n1p2", "size_bytes": 499839426560, "fstype": "btrfs", "mountpoint": "/", "uuid": "root-uuid-0001", "used_bytes": 185_000_000_000, "percent": 37.0},
             ],
         },
     ]

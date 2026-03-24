@@ -91,6 +91,8 @@ export function Desktop() {
         return <Settings initialTab="users" />
       case 'network-settings':
         return <Settings initialTab="network" />
+      case 'display-settings':
+        return <Settings initialTab="display" />
       case 'system-updates':
         return <Settings initialTab="updates" />
       case 'personalization':

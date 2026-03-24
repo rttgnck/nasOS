@@ -181,7 +181,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
   "version": "$VERSION",
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "components": $COMPONENTS,
-  "packages": ["ffmpeg"],
+  "packages": ["ffmpeg", "wlr-randr"],
   "min_required_version": "0.1.0",
   "requires_restart": true,
   "restart_services": ["nasos-backend"]$(if [[ "$INCLUDE_ELECTRON" == true ]]; then echo ',

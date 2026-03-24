@@ -5,6 +5,7 @@
 cage
 xwayland
 libwayland-dev
+wlr-randr
 
 # --- Electron runtime dependencies ---
 # Electron/Chromium on ARM64 Linux needs these shared libraries

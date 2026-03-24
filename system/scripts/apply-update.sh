@@ -439,14 +439,29 @@ for component in $COMPONENTS; do
         fi
       done
 
-      # Self-repair sudoers — older installs lack the systemd-run rule that
-      # gives the apply script its own cgroup.  Add it now so the NEXT OTA
-      # is fully cgroup-isolated and doesn't rely on the SIGTERM trap above.
+      # ── Sudoers self-repair ─────────────────────────────────────────
+      # Run the NEWLY DEPLOYED sudoers-repair.sh rather than inline rules.
+      # This avoids the one-OTA-delay problem: inline rules in apply-update.sh
+      # only take effect on the NEXT OTA (because the running apply-update.sh
+      # is the OLD version from the device).  By sourcing the new script that
+      # was just rsync'd to /opt/nasos/scripts/, new sudoers rules take effect
+      # on the SAME OTA that delivers them.
       SUDOERS_FILE=/etc/sudoers.d/nasos-backend
-      SDRUN_RULE="$OWNER ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=nasos-apply-update --description=nasOS OTA apply --collect $NASOS_DIR/scripts/apply-update.sh *"
-      if [[ -f "$SUDOERS_FILE" ]] && ! grep -q 'systemd-run.*nasos-apply-update' "$SUDOERS_FILE" 2>/dev/null; then
-        _ns bash -c "echo '$SDRUN_RULE' >> '$SUDOERS_FILE' && chmod 440 '$SUDOERS_FILE'"
-        echo "  scripts: sudoers updated with systemd-run OTA rule"
+      if [[ -f "$NASOS_DIR/scripts/sudoers-repair.sh" ]]; then
+        _ns bash "$NASOS_DIR/scripts/sudoers-repair.sh" "$OWNER" "$NASOS_DIR" "$SUDOERS_FILE"
+        echo "  scripts: ran sudoers-repair.sh"
+      else
+        # Fallback for OTA packages that don't yet include sudoers-repair.sh
+        SDRUN_RULE="$OWNER ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=nasos-apply-update --description=nasOS OTA apply --collect $NASOS_DIR/scripts/apply-update.sh *"
+        if [[ -f "$SUDOERS_FILE" ]] && ! grep -q 'systemd-run.*nasos-apply-update' "$SUDOERS_FILE" 2>/dev/null; then
+          _ns bash -c "echo '$SDRUN_RULE' >> '$SUDOERS_FILE' && chmod 440 '$SUDOERS_FILE'"
+          echo "  scripts: sudoers updated with systemd-run OTA rule"
+        fi
+        DISPLAY_RULE="$OWNER ALL=(root) NOPASSWD: $NASOS_DIR/scripts/display-setup.sh"
+        if [[ -f "$SUDOERS_FILE" ]] && ! grep -q 'display-setup.sh' "$SUDOERS_FILE" 2>/dev/null; then
+          _ns bash -c "echo '$DISPLAY_RULE' >> '$SUDOERS_FILE' && chmod 440 '$SUDOERS_FILE'"
+          echo "  scripts: sudoers updated with display-setup rule"
+        fi
       fi
       ;;
   esac

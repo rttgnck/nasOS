@@ -53,7 +53,7 @@ def _load_or_create_secret(secret_file: Path) -> str:
 
 class Settings(BaseSettings):
     app_name: str = "nasOS"
-    version: str = "031626-094510"
+    version: str = "032426-002859"
     debug: bool = False
 
     # Paths — auto-detects dev vs production

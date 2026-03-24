@@ -16,6 +16,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
   { id: 'file-ops', name: 'File Operations', description: 'Active file copy/move progress', builtIn: true, defaultEnabled: true, configurable: false },
   { id: 'network', name: 'Network Status', description: 'Interface details, IPs, and connectivity', builtIn: true, defaultEnabled: true, configurable: true },
   { id: 'storage', name: 'Storage Overview', description: 'Disk usage and pool health', builtIn: true, defaultEnabled: false, configurable: false },
+  { id: 'shares', name: 'Shares', description: 'Network share usage overview', builtIn: true, defaultEnabled: false, configurable: false },
   { id: 'docker', name: 'Docker Containers', description: 'Running and stopped container status', builtIn: true, defaultEnabled: false, configurable: false },
   { id: 'uptime', name: 'Uptime', description: 'System uptime and load averages', builtIn: true, defaultEnabled: false, configurable: true },
 ]

@@ -10,6 +10,7 @@ import platform
 import subprocess
 from pathlib import Path
 
+import psutil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,24 @@ async def list_shares(db: AsyncSession) -> list[dict]:
     result = await db.execute(select(Share).order_by(Share.name))
     shares = result.scalars().all()
     return [_share_to_dict(s) for s in shares]
+
+
+async def list_shares_with_usage(db: AsyncSession) -> list[dict]:
+    """Return all shares enriched with disk usage stats for each path."""
+    shares = await list_shares(db)
+    for share in shares:
+        try:
+            usage = psutil.disk_usage(share["path"])
+            share["total_bytes"] = usage.total
+            share["used_bytes"] = usage.used
+            share["free_bytes"] = usage.free
+            share["percent"] = usage.percent
+        except (PermissionError, OSError):
+            share["total_bytes"] = 0
+            share["used_bytes"] = 0
+            share["free_bytes"] = 0
+            share["percent"] = 0
+    return shares
 
 
 async def get_share(db: AsyncSession, share_id: int) -> dict | None:

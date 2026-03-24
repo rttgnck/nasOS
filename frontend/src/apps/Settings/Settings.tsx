@@ -4,7 +4,7 @@ import {
   Activity, AlertTriangle, Anchor, BatteryCharging, Box, Check, ChevronDown, ChevronUp, Clock,
   Code, Coffee, Copy, Cpu, Download, ExternalLink, Github, Globe, GripVertical, HardDrive,
   Heart, Info, Layout, LayoutGrid, Loader, Lock, LockOpen, Monitor, Network, Package, Palette,
-  Pencil, Plug, Plus, Printer, Radio, RefreshCw, RotateCcw, Shield, Smartphone, Thermometer,
+  Pencil, Plug, Plus, Printer, Radio, RefreshCw, RotateCcw, Share2, Shield, Smartphone, Thermometer,
   Trash2, Upload, User as UserIcon, Users, Wifi, WifiOff, Zap,
 } from 'lucide-react'
 import { api } from '../../hooks/useApi'
@@ -28,6 +28,7 @@ import {
 import { useDockStore } from '../../store/dockStore'
 import { useLayoutStore, type ScreenEdge } from '../../store/layoutStore'
 import { PasswordInput } from '../../components/PasswordInput'
+import { PowerModal } from '../../desktop/PowerModal'
 
 // ── Error Boundary ────────────────────────────────────────────────
 
@@ -120,6 +121,8 @@ type SettingsTab =
   | 'network'
   | 'services'
   | 'security'
+  | 'sata'
+  | 'display'
   | 'thermal'
   | 'ups'
   | 'updates'
@@ -165,7 +168,13 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           <Radio size={14} strokeWidth={2} /> Avahi / mDNS
         </button>
 
-        <div className="set-nav-group">Hardware</div>
+        <div className="set-nav-group">Devices</div>
+        <button className={`set-nav ${tab === 'sata' ? 'active' : ''}`} onClick={() => setTab('sata')}>
+          <HardDrive size={14} strokeWidth={2} /> Disks
+        </button>
+        <button className={`set-nav ${tab === 'display' ? 'active' : ''}`} onClick={() => setTab('display')}>
+          <Monitor size={14} strokeWidth={2} /> Display
+        </button>
         <button className={`set-nav ${tab === 'thermal' ? 'active' : ''}`} onClick={() => setTab('thermal')}>
           <Thermometer size={14} strokeWidth={2} /> Thermal
         </button>
@@ -201,6 +210,8 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           {tab === 'network' && <NetworkTab />}
           {tab === 'services' && <ServicesTab />}
           {tab === 'security' && <SecurityTab />}
+          {tab === 'sata' && <SataStorageTab />}
+          {tab === 'display' && <DisplayTab />}
           {tab === 'thermal' && <ThermalTab />}
           {tab === 'ups' && <UpsTab />}
           {tab === 'updates' && <UpdatesTab />}
@@ -1119,6 +1130,709 @@ function SecurityTab() {
   )
 }
 
+// ── SATA / Storage Tab ──────────────────────────────────────────
+
+interface SataPartition {
+  name: string
+  path: string
+  size_bytes: number
+  fstype: string | null
+  mountpoint: string | null
+  uuid: string | null
+  disk_label: string | null
+  label: string
+  configured_mount: string
+  auto_mount: boolean
+}
+
+interface SataDevice {
+  name: string
+  path: string
+  size_bytes: number
+  model: string
+  serial: string
+  vendor: string
+  transport: string
+  partitions: SataPartition[]
+}
+
+interface SataHatStatus {
+  enabled: boolean
+  available: boolean
+  reboot_required: boolean
+}
+
+interface SataInfo {
+  hat: SataHatStatus
+  devices: SataDevice[]
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(i > 2 ? 1 : 0)} ${sizes[i]}`
+}
+
+const inputStyle: React.CSSProperties = {
+  padding: '4px 8px',
+  borderRadius: 6,
+  border: '1px solid rgba(255,255,255,0.1)',
+  background: 'rgba(255,255,255,0.04)',
+  color: '#ccd6f6',
+  fontSize: 13,
+  width: 180,
+}
+
+function SataStorageTab() {
+  const [data, setData] = useState<SataInfo | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [hatToggling, setHatToggling] = useState(false)
+  const [hatReboot, setHatReboot] = useState(false)
+  const [restartMode, setRestartMode] = useState<'restart' | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [editingPart, setEditingPart] = useState<string | null>(null)
+  const [mountingPart, setMountingPart] = useState<string | null>(null)
+  const [editLabel, setEditLabel] = useState('')
+  const [editMount, setEditMount] = useState('')
+  const [mountLabel, setMountLabel] = useState('')
+  const [mountPoint, setMountPoint] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      setError(null)
+      const d = await api<SataInfo>('/api/sata')
+      setData(d)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load storage info')
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const toggleHat = async (enabled: boolean) => {
+    setHatToggling(true)
+    try {
+      const res = await api<{ reboot_required?: boolean }>('/api/sata/hat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      if (res.reboot_required) setHatReboot(true)
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to toggle SATA HAT')
+    } finally {
+      setHatToggling(false)
+    }
+  }
+
+  const handleMount = async (part: SataPartition) => {
+    if (!mountPoint.trim()) return
+    setActionLoading(part.name)
+    try {
+      await api('/api/sata/mount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device: part.path,
+          mount_point: mountPoint.startsWith('/mnt/') ? mountPoint : `/mnt/${mountPoint}`,
+          label: mountLabel || part.name,
+        }),
+      })
+      setMountingPart(null)
+      setMountLabel('')
+      setMountPoint('')
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Mount failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleUnmount = async (partName: string) => {
+    setActionLoading(partName)
+    try {
+      await api('/api/sata/unmount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_name: partName }),
+      })
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Unmount failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleUpdate = async (partName: string) => {
+    setActionLoading(partName)
+    try {
+      await api('/api/sata/device', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_name: partName,
+          label: editLabel || undefined,
+          mount_point: editMount || undefined,
+        }),
+      })
+      setEditingPart(null)
+      await load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  if (error && !data) return <div className="set-loading" style={{ color: '#ff5252' }}>Storage error: {error}</div>
+  if (!data) return <div className="set-loading">Loading storage settings...</div>
+
+  return (
+    <div className="set-tab-content">
+      {/* ── SATA HAT ── */}
+      <div className="set-section-header">
+        <h3>Penta SATA HAT</h3>
+      </div>
+      <p className="set-desc">
+        Enable PCIe Gen 3 for the Radxa Penta SATA HAT. This adds <code>dtparam=pciex1</code> to
+        your Pi's config.txt. A reboot is required after toggling.
+      </p>
+      <div className="set-card">
+        <div className="set-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Plug size={16} style={{ opacity: 0.6 }} />
+            <div>
+              <div style={{ fontWeight: 500 }}>SATA HAT Support</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Enables PCIe x1 lane for the Penta SATA controller
+              </div>
+            </div>
+          </div>
+          <button
+            className={`set-btn ${data.hat.enabled ? 'set-btn-secondary' : 'set-btn-primary'}`}
+            onClick={() => toggleHat(!data.hat.enabled)}
+            disabled={hatToggling}
+            style={{ minWidth: 90 }}
+          >
+            {hatToggling ? <Loader size={13} className="spin" /> : data.hat.enabled ? 'Disable' : 'Enable'}
+          </button>
+        </div>
+        {data.hat.enabled && (
+          <div className="set-row" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <span style={{ fontSize: '0.85rem', color: '#66bb6a', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Check size={14} /> SATA HAT is enabled
+            </span>
+          </div>
+        )}
+      </div>
+
+      {(hatReboot) && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center' }}>
+          <button className="set-btn set-btn-secondary" onClick={() => setRestartMode('restart')}>
+            <RefreshCw size={13} style={{ marginRight: 4, verticalAlign: -2 }} />
+            Restart to Apply
+          </button>
+          <span style={{ fontSize: '0.85rem', color: '#ffa726' }}>Reboot required for changes to take effect</span>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ margin: '10px 0', padding: '8px 12px', borderRadius: 8, background: 'rgba(255,82,82,0.1)', color: '#ff5252', fontSize: '0.85rem' }}>
+          {error}
+        </div>
+      )}
+
+      {/* ── Connected Disks ── */}
+      <div className="set-section-header" style={{ marginTop: 24 }}>
+        <h3>Connected Disks</h3>
+        <button className="set-btn" onClick={load}>↻ Refresh</button>
+      </div>
+      <p className="set-desc">
+        SATA and USB block devices detected on the system. Mount partitions to make them accessible.
+      </p>
+
+      {data.devices.length === 0 ? (
+        <div className="set-card" style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <HardDrive size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
+          <div>No SATA devices detected</div>
+          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
+            {data.hat.enabled
+              ? 'Connect drives to the SATA HAT and refresh'
+              : 'Enable the SATA HAT above, then reboot'}
+          </div>
+        </div>
+      ) : (
+        data.devices.map((dev) => (
+          <div key={dev.name} className="set-card" style={{ marginBottom: 12 }}>
+            {/* Disk header */}
+            <div className="set-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <HardDrive size={18} style={{ opacity: 0.6 }} />
+                <div>
+                  <div style={{ fontWeight: 600 }}>{dev.model || dev.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    /dev/{dev.name} &middot; {formatBytes(dev.size_bytes)} &middot; {dev.transport?.toUpperCase() || 'Unknown'}
+                    {dev.serial ? ` · S/N ${dev.serial}` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Partitions */}
+            {dev.partitions.map((part) => {
+              const isMounted = !!part.mountpoint || !!part.configured_mount
+              const isEditing = editingPart === part.name
+              const isMounting = mountingPart === part.name
+              const isLoading = actionLoading === part.name
+
+              return (
+                <div key={part.name} style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                  {/* Partition info row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: isMounted ? '#66bb6a' : 'rgba(255,255,255,0.15)' }} />
+                      <div>
+                        <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
+                          {part.label !== part.name ? part.label : (part.disk_label || part.name)}
+                          <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                            /dev/{part.name}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
+                          <span>{formatBytes(part.size_bytes)}</span>
+                          {part.fstype && <span>{part.fstype}</span>}
+                          {part.mountpoint && <span>→ {part.mountpoint}</span>}
+                          {!part.mountpoint && part.configured_mount && <span>→ {part.configured_mount} (configured)</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {isMounted ? (
+                        <>
+                          <button
+                            className="set-btn-sm"
+                            onClick={() => {
+                              setEditingPart(isEditing ? null : part.name)
+                              setEditLabel(part.label)
+                              setEditMount(part.configured_mount || part.mountpoint || '')
+                            }}
+                            title="Edit"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            className="set-btn-sm"
+                            style={{ color: '#ff5252' }}
+                            onClick={() => handleUnmount(part.name)}
+                            disabled={isLoading}
+                            title="Unmount"
+                          >
+                            {isLoading ? <Loader size={13} className="spin" /> : <Plug size={13} />}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="set-btn"
+                          onClick={() => {
+                            setMountingPart(isMounting ? null : part.name)
+                            setMountLabel(part.disk_label || part.name)
+                            setMountPoint(part.disk_label || part.name)
+                          }}
+                          disabled={!part.fstype}
+                          title={!part.fstype ? 'No filesystem — format the disk first' : 'Mount'}
+                          style={{ fontSize: '0.8rem' }}
+                        >
+                          <Plus size={12} /> Mount
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Mount form (for unmounted partitions) */}
+                  {isMounting && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: 12,
+                      borderRadius: 8,
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Label</span>
+                          <input
+                            style={inputStyle}
+                            value={mountLabel}
+                            onChange={(e) => setMountLabel(e.target.value)}
+                            placeholder="e.g. Media Drive"
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                            <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
+                            <input
+                              style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+                              value={mountPoint.replace(/^\/mnt\//, '')}
+                              onChange={(e) => setMountPoint(e.target.value.replace(/\s/g, '-'))}
+                              placeholder="drive-name"
+                            />
+                          </div>
+                        </label>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          className="set-btn set-btn-primary"
+                          onClick={() => handleMount(part)}
+                          disabled={isLoading || !mountPoint.trim()}
+                          style={{ fontSize: '0.8rem' }}
+                        >
+                          {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />}
+                          {' '}Mount & Save
+                        </button>
+                        <button
+                          className="set-btn"
+                          onClick={() => { setMountingPart(null); setMountLabel(''); setMountPoint('') }}
+                          style={{ fontSize: '0.8rem' }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Edit form (for mounted partitions) */}
+                  {isEditing && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: 12,
+                      borderRadius: 8,
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Label</span>
+                          <input
+                            style={inputStyle}
+                            value={editLabel}
+                            onChange={(e) => setEditLabel(e.target.value)}
+                            placeholder="Device label"
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                            <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
+                            <input
+                              style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+                              value={editMount.replace(/^\/mnt\//, '')}
+                              onChange={(e) => setEditMount(`/mnt/${e.target.value.replace(/\s/g, '-')}`)}
+                              placeholder="drive-name"
+                            />
+                          </div>
+                        </label>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          className="set-btn set-btn-primary"
+                          onClick={() => handleUpdate(part.name)}
+                          disabled={isLoading}
+                          style={{ fontSize: '0.8rem' }}
+                        >
+                          {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />}
+                          {' '}Save Changes
+                        </button>
+                        <button
+                          className="set-btn"
+                          onClick={() => setEditingPart(null)}
+                          style={{ fontSize: '0.8rem' }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ))
+      )}
+
+      {createPortal(
+        <PowerModal mode={restartMode} onClose={() => setRestartMode(null)} />,
+        document.body
+      )}
+    </div>
+  )
+}
+
+// ── Display Tab ──────────────────────────────────────────────────
+
+interface DetectedDisplay {
+  name: string
+  connector: string
+  connected: boolean
+  resolution: string
+  type: string
+}
+
+interface DisplayInfo {
+  displays: DetectedDisplay[]
+  rotation: number
+  connector: string
+  resolution: string
+  touch_rotation: number | null
+}
+
+function DisplayTab() {
+  const [data, setData] = useState<DisplayInfo | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [rotation, setRotation] = useState(0)
+  const [selectedConnector, setSelectedConnector] = useState('')
+  const [selectedResolution, setSelectedResolution] = useState('')
+  const [touchMode, setTouchMode] = useState<'auto' | 'custom'>('auto')
+  const [touchRotation, setTouchRotation] = useState(0)
+  const [restartMode, setRestartMode] = useState<'restart' | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api<DisplayInfo>('/api/display')
+      setData(d)
+      setRotation(d.rotation)
+      // Use saved connector/resolution, or auto-select first detected display
+      const conn = d.connector || d.displays[0]?.connector || ''
+      const res = d.resolution || d.displays[0]?.resolution || ''
+      setSelectedConnector(conn)
+      setSelectedResolution(res)
+      if (d.touch_rotation === null || d.touch_rotation === undefined) {
+        setTouchMode('auto')
+        setTouchRotation(d.rotation)
+      } else {
+        setTouchMode('custom')
+        setTouchRotation(d.touch_rotation)
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load display settings')
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await api('/api/display', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rotation,
+          connector: selectedConnector,
+          resolution: selectedResolution,
+          touch_rotation: touchMode === 'auto' ? null : touchRotation,
+        }),
+      })
+      setSaved(true)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (error) return <div className="set-loading" style={{ color: '#ff5252' }}>Display error: {error}</div>
+  if (!data) return <div className="set-loading">Loading display settings...</div>
+
+  const rotationOptions = [
+    { value: 0, label: '0° — Normal' },
+    { value: 90, label: '90° — Clockwise' },
+    { value: 180, label: '180° — Inverted' },
+    { value: 270, label: '270° — Counter-clockwise' },
+  ]
+
+  const hasDisplays = data.displays.length > 0
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header">
+        <h3>Connected Displays</h3>
+        <button className="set-btn" onClick={load}>↻ Refresh</button>
+      </div>
+
+      {!hasDisplays ? (
+        <div className="set-card" style={{ padding: '20px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <Monitor size={32} style={{ opacity: 0.4, marginBottom: 8 }} />
+          <div>No displays detected</div>
+        </div>
+      ) : (
+        <div className="set-card">
+          {data.displays.map((d) => {
+            const isSelected = d.connector === selectedConnector
+            return (
+              <div
+                key={d.name}
+                className="set-row"
+                style={{ cursor: 'pointer', background: isSelected ? 'rgba(100,120,255,0.08)' : undefined }}
+                onClick={() => {
+                  setSelectedConnector(d.connector)
+                  setSelectedResolution(d.resolution)
+                  setSaved(false)
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Monitor size={16} style={{ opacity: 0.6 }} />
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{d.connector}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      {d.type}{d.resolution ? ` • ${d.resolution}` : ''}
+                    </div>
+                  </div>
+                </div>
+                {isSelected
+                  ? <span className="sec-badge sec-badge-on" style={{ background: 'rgba(100,120,255,0.15)', color: '#8892ff', borderColor: 'rgba(100,120,255,0.3)' }}>Selected</span>
+                  : <span className="sec-badge sec-badge-on">Connected</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="set-section-header" style={{ marginTop: 20 }}>
+        <h3>Screen Rotation</h3>
+      </div>
+      <p className="set-desc">
+        Rotate the display output. Useful when the screen is mounted in a non-standard orientation.
+      </p>
+      <div className="set-card">
+        <div className="set-row">
+          <span>Rotation</span>
+          <select
+            value={rotation}
+            onChange={(e) => {
+              const val = Number(e.target.value)
+              setRotation(val)
+              if (touchMode === 'auto') setTouchRotation(val)
+              setSaved(false)
+            }}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#ccd6f6',
+              fontSize: 13,
+            }}
+          >
+            {rotationOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="set-section-header" style={{ marginTop: 20 }}>
+        <h3>Touch Orientation</h3>
+      </div>
+      <p className="set-desc">
+        Touch input is automatically adjusted to match the screen rotation. Use "Custom" only if your touchscreen is physically misaligned.
+      </p>
+      <div className="set-card">
+        <div className="set-row">
+          <span>Touch Calibration</span>
+          <select
+            value={touchMode}
+            onChange={(e) => {
+              const mode = e.target.value as 'auto' | 'custom'
+              setTouchMode(mode)
+              if (mode === 'auto') setTouchRotation(rotation)
+              setSaved(false)
+            }}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#ccd6f6',
+              fontSize: 13,
+            }}
+          >
+            <option value="auto">Auto (recommended)</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        {touchMode === 'custom' && (
+          <div className="set-row">
+            <span>Touch Rotation</span>
+            <select
+              value={touchRotation}
+              onChange={(e) => {
+                setTouchRotation(Number(e.target.value))
+                setSaved(false)
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.04)',
+                color: '#ccd6f6',
+                fontSize: 13,
+              }}
+            >
+              {rotationOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+        <button
+          className="set-btn set-btn-primary"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? 'Saving...' : 'Save Settings'}
+        </button>
+        {saved && (
+          <button
+            className="set-btn set-btn-secondary"
+            onClick={() => setRestartMode('restart')}
+          >
+            <RefreshCw size={13} style={{ marginRight: 4, verticalAlign: -2 }} />
+            Restart to Apply
+          </button>
+        )}
+        {saved && (
+          <span style={{ fontSize: '0.85rem', color: '#66bb6a', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Check size={14} /> Saved — restart required
+          </span>
+        )}
+      </div>
+
+      {createPortal(
+        <PowerModal mode={restartMode} onClose={() => setRestartMode(null)} />,
+        document.body
+      )}
+    </div>
+  )
+}
+
 // ── Thermal Tab ──────────────────────────────────────────────────
 
 interface ThermalData {
@@ -1404,6 +2118,18 @@ function fmtBytes(b: number) {
   if (b < 1024) return `${b} B`
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
   return `${(b / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function versionToSortable(v: string): string {
+  const clean = v.replace(/^v/, '')
+  // MMDDYY-HHMMSS → rearrange to YYMMDD-HHMMSS for chronological sort
+  const m = clean.match(/^(\d{2})(\d{2})(\d{2})-(\d{6})$/)
+  if (m) return `${m[3]}${m[1]}${m[2]}-${m[4]}`
+  return clean
+}
+
+function isVersionOlder(candidate: string, current: string): boolean {
+  return versionToSortable(candidate) < versionToSortable(current)
 }
 
 interface GitHubRelease {
@@ -1874,25 +2600,39 @@ function UpdatesTab() {
       )}
 
       {/* ── Confirm dialog ── */}
-      {confirm && displayStaged && (
-        <div className="shr-overlay" onClick={() => setConfirm(false)}>
-          <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
-            <div className="shr-wizard-header">
-              <h3>Apply Update?</h3>
-              <button className="shr-btn-icon" onClick={() => setConfirm(false)}>✕</button>
-            </div>
-            <div className="shr-wizard-body">
-              <p>This will install <strong>v{displayStaged.version}</strong> and reboot the device to apply changes.</p>
-              <p>Components: {displayStaged.components.join(', ')}</p>
-              <p style={{ color: '#ffa726', marginTop: 8 }}>The device will be unreachable for ~60 seconds while it reboots.</p>
-            </div>
-            <div className="shr-wizard-footer">
-              <button className="shr-btn" onClick={() => setConfirm(false)}>Cancel</button>
-              <button className="shr-btn shr-btn-primary" onClick={handleApply}>Apply Now</button>
+      {confirm && displayStaged && (() => {
+        const downgrade = isVersionOlder(displayStaged.version, current_version)
+        return (
+          <div className="shr-overlay" onClick={() => setConfirm(false)}>
+            <div className="shr-wizard" onClick={(e) => e.stopPropagation()}>
+              <div className="shr-wizard-header">
+                <h3>{downgrade ? 'Confirm Downgrade' : 'Apply Update?'}</h3>
+                <button className="shr-btn-icon" onClick={() => setConfirm(false)}>✕</button>
+              </div>
+              <div className="shr-wizard-body">
+                {downgrade && (
+                  <p style={{ color: '#ef5350', fontWeight: 600, marginBottom: 8 }}>
+                    The staged version is older than the currently installed version.
+                  </p>
+                )}
+                <p>
+                  {downgrade
+                    ? <>Are you sure you want to downgrade from <strong>v{current_version}</strong> to <strong>v{displayStaged.version}</strong>?</>
+                    : <>This will install <strong>v{displayStaged.version}</strong> and reboot the device to apply changes.</>}
+                </p>
+                <p>Components: {displayStaged.components.join(', ')}</p>
+                <p style={{ color: '#ffa726', marginTop: 8 }}>The device will be unreachable for ~60 seconds while it reboots.</p>
+              </div>
+              <div className="shr-wizard-footer">
+                <button className="shr-btn" onClick={() => setConfirm(false)}>Cancel</button>
+                <button className="shr-btn shr-btn-primary" onClick={handleApply}>
+                  {downgrade ? 'Yes, Downgrade' : 'Apply Now'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Waiting for Restart Modal ── */}
       {showRestartModal && (
@@ -2462,6 +3202,7 @@ function widgetIcon(id: string, size = 16) {
     case 'file-ops': return <Copy size={size} />
     case 'network': return <Network size={size} />
     case 'storage': return <HardDrive size={size} />
+    case 'shares': return <Share2 size={size} />
     case 'docker': return <Box size={size} />
     case 'uptime': return <Activity size={size} />
     default: return <Code size={size} />

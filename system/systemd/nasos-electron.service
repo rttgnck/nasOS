@@ -48,12 +48,14 @@ ExecStartPre=+/bin/bash -c '\
     echo "nasOS: Electron repair succeeded" >&2; \
   fi'
 
-# Set XDG_RUNTIME_DIR dynamically via bash wrapper so it resolves the actual UID
-# --no-sandbox / --disable-gpu-sandbox: required when Electron runs as a system service
-# --disable-renderer-backgrounding etc.: prevent Chromium from throttling/blanking the
-#   renderer when it thinks the window is in the background (very common on kiosk setups)
-# --disable-features=PaintHolding: prevents blank frames being held during content load
-ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/electron/node_modules/.bin/electron /opt/nasos/electron/main.js --no-sandbox --disable-gpu-sandbox --disable-renderer-backgrounding --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-features=PaintHolding'
+# Refresh touch-calibration udev rule from /opt/nasos/data/display.json.
+# Runs as root ("+" prefix) so it can write to /etc/udev/rules.d/.
+# Errors are non-fatal — cage starts normally if the script is missing.
+ExecStartPre=+/bin/bash -c '[ -x /opt/nasos/scripts/display-setup.sh ] && /opt/nasos/scripts/display-setup.sh || true'
+
+# cage-session.sh applies display rotation via wlr-randr (Wayland-native
+# output transform), then execs Electron.  wlroots auto-adjusts touch input.
+ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/scripts/cage-session.sh'
 Restart=always
 RestartSec=5
 # Disable the systemd restart-burst limit so the service is retried

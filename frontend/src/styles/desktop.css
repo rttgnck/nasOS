@@ -5659,8 +5659,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  z-index: 5;
+  z-index: 1;
   pointer-events: all;
+  transition: z-index 0s;
+}
+
+.desktop-widgets:hover {
+  z-index: 999990;
 }
 
 .dw-card {
@@ -5817,6 +5822,14 @@
 }
 
 /* Network Widget */
+.dw-net-iface {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.dw-net-iface:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
 .dw-network-throughput {
   display: flex;
   gap: 12px;
@@ -5827,14 +5840,82 @@
   color: #8892b0;
 }
 
+.dw-net-up { color: #4fc3f7; }
+.dw-net-down { color: #81c784; }
+
+.dw-net-graph {
+  margin-top: 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.dw-netgraph {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 /* Storage Widget */
-.dw-storage-row { margin-bottom: 6px; }
-.dw-storage-row:last-child { margin-bottom: 0; }
+.dw-storage-disk {
+  margin-bottom: 8px;
+}
+
+.dw-storage-disk:last-child { margin-bottom: 0; }
 
 .dw-storage-header {
   display: flex;
   justify-content: space-between;
   margin-bottom: 3px;
+}
+
+.dw-storage-parts {
+  margin-top: 4px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(255, 255, 255, 0.06);
+}
+
+.dw-storage-part { margin-bottom: 4px; }
+.dw-storage-part:last-child { margin-bottom: 0; }
+
+.dw-storage-part-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.dw-part-label {
+  font-size: 10px;
+  color: #5a6785;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.dw-part-value {
+  font-size: 10px;
+  color: #6a7799;
+  font-variant-numeric: tabular-nums;
+}
+
+.dw-part-bar { height: 4px !important; }
+
+.dw-part-fill {
+  background: linear-gradient(90deg, #7c4dff, #b388ff) !important;
+}
+
+/* Shares Widget */
+.dw-share-fill {
+  background: linear-gradient(90deg, #26a69a, #80cbc4) !important;
+}
+
+.dw-share-detail {
+  font-size: 10px;
+  color: #5a6785;
+  margin-top: 2px;
+  text-align: right;
 }
 
 /* Docker Widget */

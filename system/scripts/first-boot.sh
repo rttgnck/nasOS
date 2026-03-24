@@ -51,6 +51,11 @@ echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh" >> 
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/apply-update.sh *" >> /etc/sudoers.d/nasos-backend
 # OTA updates via isolated systemd-run cgroup
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=nasos-apply-update --description=nasOS OTA apply --collect /opt/nasos/scripts/apply-update.sh *" >> /etc/sudoers.d/nasos-backend
+# Display setup — screen rotation and touch calibration
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/display-setup.sh" >> /etc/sudoers.d/nasos-backend
+# Storage mount management — SATA HAT config and device mounts
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/storage-mount.sh *" >> /etc/sudoers.d/nasos-backend
+echo "$PRIMARY_USER ALL=(root) NOPASSWD: /opt/nasos/scripts/storage-mount.sh" >> /etc/sudoers.d/nasos-backend
 # Power management
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot" >> /etc/sudoers.d/nasos-backend
 echo "$PRIMARY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff" >> /etc/sudoers.d/nasos-backend
@@ -225,6 +230,9 @@ fi
 
 # Enable NFS (but don't start until shares are configured)
 systemctl enable nfs-kernel-server
+
+# Enable SATA auto-mount service (mounts configured drives on boot)
+systemctl enable nasos-sata-mount.service 2>/dev/null || true
 
 # ─────────────────────────────────────────
 # Firewall basics

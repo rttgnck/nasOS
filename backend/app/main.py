@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, backup, docker, extras, file_ops, files, logs, network, preferences, security, shares, storage, system, update, users, wifi
+from app.api import auth, backup, display, docker, extras, file_ops, files, logs, network, preferences, sata, security, shares, storage, system, update, users, wifi
 from app.core.config import settings
 from app.core.database import async_session, init_db
 from app.services.share_service import seed_default_shares, ensure_smb_global_settings
@@ -99,6 +99,8 @@ app.include_router(wifi.router, dependencies=_auth)
 app.include_router(docker.router, dependencies=_auth)
 app.include_router(backup.router, dependencies=_auth)
 app.include_router(security.router, dependencies=_auth)
+app.include_router(display.router, dependencies=_auth)
+app.include_router(sata.router, dependencies=_auth)
 app.include_router(extras.router, dependencies=_auth)
 app.include_router(logs.router, dependencies=_auth)
 app.include_router(update.router, dependencies=_auth)
