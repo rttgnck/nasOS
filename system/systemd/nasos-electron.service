@@ -13,11 +13,10 @@ SupplementaryGroups=video render input
 
 # Environment for Wayland compositor
 Environment=WLR_RENDERER=pixman
-# Required for Pi 5 (vc4/v3d DRM driver): wlroots atomic modesetting can fail
-# on the Pi 5 display pipeline — disabling it forces legacy modesetting which works.
-Environment=WLR_DRM_NO_ATOMIC=1
 # Hardware cursors can cause rendering artefacts with the pixman software renderer
 Environment=WLR_NO_HARDWARE_CURSORS=1
+# NOTE: WLR_DRM_NO_ATOMIC is set dynamically by detect-drm-devices.sh — it's
+# only enabled when no DSI display is present (DSI requires atomic modesetting).
 # NOTE: WLR_LIBINPUT_NO_DEVICES must NOT be set — removing it allows wlroots/cage
 # to use libinput, which is required for mouse/touchpad input to work.
 
@@ -53,8 +52,14 @@ ExecStartPre=+/bin/bash -c '\
 # Errors are non-fatal — cage starts normally if the script is missing.
 ExecStartPre=+/bin/bash -c '[ -x /opt/nasos/scripts/display-setup.sh ] && /opt/nasos/scripts/display-setup.sh || true'
 
-# cage-session.sh applies display rotation via wlr-randr (Wayland-native
-# output transform), then execs Electron.  wlroots auto-adjusts touch input.
+# Auto-detect DRM display cards for wlroots.  Pi 5 has separate /dev/dri
+# cards for HDMI, DSI, DPI, VEC — wlroots only auto-probes the first and
+# misses DSI.  detect-drm-devices.sh writes WLR_DRM_DEVICES to an env file.
+# Non-fatal: if the script fails, Cage falls back to auto-probing (HDMI).
+ExecStartPre=+/bin/bash -c '[ -x /opt/nasos/scripts/detect-drm-devices.sh ] && /opt/nasos/scripts/detect-drm-devices.sh || true'
+EnvironmentFile=-/run/nasos/drm-env
+
+# cage-session.sh applies display rotation via wlr-randr and execs Electron.
 ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/scripts/cage-session.sh'
 Restart=always
 RestartSec=5

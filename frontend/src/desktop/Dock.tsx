@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   type LucideIcon,
   FolderOpen, HardDrive, Share2, Users, Box, Network, Activity, Archive, ScrollText,
-  Settings, RefreshCw, TerminalSquare, Globe, Package, Palette,
+  Settings, RefreshCw, TerminalSquare, Globe, Package, Palette, LayoutDashboard,
 } from 'lucide-react'
 import { useDockStore } from '../store/dockStore'
 import { useLayoutStore } from '../store/layoutStore'
@@ -12,6 +12,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { WindowPreviewPopup, useWindowPreviewHover } from './WindowPreview'
 
 const APP_META: Record<string, { label: string; Icon: LucideIcon }> = {
+  'dashboard':       { label: 'Dashboard',    Icon: LayoutDashboard },
   'file-manager':    { label: 'File Manager', Icon: FolderOpen },
   'storage-manager': { label: 'Storage',      Icon: HardDrive },
   'share-manager':   { label: 'Shares',       Icon: Share2 },

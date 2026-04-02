@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 24px 28px;
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #fff;
+      letter-spacing: 0.2px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #6e6e8a;
+      margin-bottom: 20px;
+    }
+    .section {
+      margin-bottom: 16px;
+      -webkit-app-region: no-drag;
+    }
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6c63ff;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: #9e9eb8;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    input {
+      width: 100%;
+      padding: 7px 10px;
+      font-size: 13px;
+      border-radius: 6px;
+      border: 1px solid #2d2d52;
+      background: #0f0c29;
+      color: #fff;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #6c63ff; }
+    input::placeholder { color: #444466; }
+    .row { display: flex; gap: 12px; }
+    .row .field { margin-bottom: 10px; }
+    .row .field:first-child { flex: 1; }
+    .row .field.port-field { width: 90px; }
+    .ip-row .field { flex: 1; margin-bottom: 10px; }
+    .ip-row .field.port-field { width: 90px; }
+    .hint {
+      font-size: 10px;
+      color: #555570;
+      margin-top: 3px;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+      -webkit-app-region: no-drag;
+    }
+    button {
+      padding: 7px 18px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid #2d2d52;
+      color: #9e9eb8;
+    }
+    .btn-save {
+      background: linear-gradient(135deg, #4fc3f7, #6c63ff);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h2>Connection Settings</h2>
+  <p class="subtitle">Configure how to reach your nasOS device</p>
+
+  <div class="section">
+    <div class="section-title">Hostname</div>
+    <div class="row">
+      <div class="field">
+        <label for="hostname">mDNS Hostname</label>
+        <input id="hostname" type="text" placeholder="nasos.local" spellcheck="false" />
+      </div>
+      <div class="field port-field">
+        <label for="port">Port</label>
+        <input id="port" type="number" placeholder="8080" min="1" max="65535" />
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Fallback IP</div>
+    <div class="row ip-row">
+      <div class="field">
+        <label for="ip">IP Address</label>
+        <input id="ip" type="text" placeholder="e.g. 192.168.1.100" spellcheck="false" />
+      </div>
+    </div>
+    <div class="hint">Optional — use if the hostname can't be resolved</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-cancel" id="cancelBtn">Cancel</button>
+    <button class="btn-save" id="saveBtn">Save</button>
+  </div>
+
+  <script>
+    const hostnameEl = document.getElementById('hostname');
+    const ipEl = document.getElementById('ip');
+    const portEl = document.getElementById('port');
+
+    window.api.getConfig().then((cfg) => {
+      hostnameEl.value = cfg.hostname;
+      ipEl.value = cfg.ip || '';
+      portEl.value = cfg.port;
+    });
+
+    function save() {
+      window.api.saveConfig({
+        hostname: hostnameEl.value.trim(),
+        ip: ipEl.value.trim(),
+        port: parseInt(portEl.value, 10),
+      }).then(() => window.api.close());
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', save);
+    document.getElementById('cancelBtn').addEventListener('click', () => window.api.close());
+
+    document.querySelectorAll('input').forEach((el) => {
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') save();
+        if (e.key === 'Escape') window.api.close();
+      });
+    });
+  </script>
+</body>
+</html>

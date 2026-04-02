@@ -1,6 +1,6 @@
 [project]
 name = "nasos-backend"
-version = "032426-002859"
+version = "040126-2331"
 description = "nasOS — Raspberry Pi NAS Desktop OS Backend"
 requires-python = ">=3.11"
 dependencies = [

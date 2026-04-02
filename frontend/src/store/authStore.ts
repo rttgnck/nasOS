@@ -78,6 +78,25 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   checkAuth: async () => {
     const token = get().token
     if (!token) {
+      // No stored token — try auto-login (only succeeds from the onboard display)
+      try {
+        const res = await fetch('/api/auth/autologin')
+        if (res.ok) {
+          const data = await res.json()
+          localStorage.setItem(STORAGE_KEY, data.access_token)
+          set({
+            token: data.access_token,
+            user: data.user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+            mustChangePassword: !!data.must_change_password,
+          })
+          return
+        }
+      } catch {
+        // Auto-login unavailable — fall through to login screen
+      }
       set({ isAuthenticated: false, isLoading: false })
       return
     }
@@ -96,8 +115,26 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           mustChangePassword: !!user.must_change_password,
         })
       } else {
-        // Token expired or invalid
+        // Token expired or invalid — try auto-login before showing login screen
         localStorage.removeItem(STORAGE_KEY)
+        try {
+          const autoRes = await fetch('/api/auth/autologin')
+          if (autoRes.ok) {
+            const data = await autoRes.json()
+            localStorage.setItem(STORAGE_KEY, data.access_token)
+            set({
+              token: data.access_token,
+              user: data.user,
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+              mustChangePassword: !!data.must_change_password,
+            })
+            return
+          }
+        } catch {
+          // Auto-login unavailable
+        }
         set({ token: null, user: null, isAuthenticated: false, isLoading: false, mustChangePassword: false })
       }
     } catch {

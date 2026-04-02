@@ -18,6 +18,7 @@ _log = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.models.share import Share
+from app.services.sata_storage_service import get_mounted_volumes, scan_and_automount
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -26,6 +27,7 @@ BROWSE_ROOT = Path(os.environ.get("NASOS_BROWSE_ROOT", Path.home()))
 
 # Share path prefix used by the frontend
 _SHARE_PREFIX = "@shares/"
+_DISK_PREFIX = "@disks/"
 
 
 def _safe_path(relative: str) -> Path:
@@ -52,6 +54,15 @@ def _resolve_root_and_rel(relative: str) -> tuple[Path, str]:
         if share_root is None:
             raise HTTPException(status_code=404, detail=f"Share not found: {share_name}")
         return share_root, sub_path
+    if relative.startswith(_DISK_PREFIX):
+        rest = relative[len(_DISK_PREFIX):]
+        parts = rest.split("/", 1)
+        disk_label = parts[0]
+        sub_path = parts[1] if len(parts) > 1 else ""
+        disk_root = _get_disk_root(disk_label)
+        if disk_root is None:
+            raise HTTPException(status_code=404, detail=f"Disk not found: {disk_label}")
+        return disk_root, sub_path
     return BROWSE_ROOT, relative
 
 
@@ -68,16 +79,23 @@ def _make_relative(target: Path, relative_input: str) -> str:
 
 
 def _share_prefix_for(relative_input: str) -> str:
-    """Return the @shares/Name/ prefix if the path targets a share, else ''."""
+    """Return the @shares/Name/ or @disks/Label/ prefix if applicable, else ''."""
     if relative_input.startswith(_SHARE_PREFIX):
         rest = relative_input[len(_SHARE_PREFIX):]
         share_name = rest.split("/", 1)[0]
         return f"{_SHARE_PREFIX}{share_name}/"
+    if relative_input.startswith(_DISK_PREFIX):
+        rest = relative_input[len(_DISK_PREFIX):]
+        disk_label = rest.split("/", 1)[0]
+        return f"{_DISK_PREFIX}{disk_label}/"
     return ""
 
 
 # Cache of share name → filesystem path (refreshed per-request via _get_share_root)
 _share_cache: dict[str, Path] = {}
+
+# Cache of disk label → mount path (refreshed when /roots is called)
+_disk_cache: dict[str, Path] = {}
 
 
 def _get_share_root(share_name: str) -> Path | None:
@@ -114,13 +132,50 @@ async def _refresh_share_cache(db: AsyncSession):
         _share_cache[s.name] = Path(s.path)
 
 
+def _refresh_disk_cache():
+    """Rebuild the disk label → mountpoint cache from mounted volumes."""
+    _disk_cache.clear()
+    for vol in get_mounted_volumes():
+        label = vol.get("label") or vol.get("name", "")
+        mp = vol.get("mountpoint", "")
+        if label and mp:
+            _disk_cache[label] = Path(mp)
+
+
+def _get_disk_root(disk_label: str) -> Path | None:
+    """Look up a mounted disk's root path by label."""
+    if disk_label in _disk_cache:
+        return _disk_cache[disk_label]
+    _refresh_disk_cache()
+    return _disk_cache.get(disk_label)
+
+
 # --- Roots (browsable locations) ---
 
 @router.get("/roots")
 async def get_roots(db: AsyncSession = Depends(get_db)):
-    """Return all browsable root locations (Home + enabled shares)."""
+    """Return all browsable root locations (Home + mounted disks + enabled shares)."""
+    await asyncio.to_thread(scan_and_automount)
     await _refresh_share_cache(db)
+    _refresh_disk_cache()
+
     roots = [{"id": "home", "name": "Home", "path": "", "icon": "home"}]
+
+    # Mounted disks
+    for vol in get_mounted_volumes():
+        label = vol.get("label") or vol.get("name", "")
+        mp = vol.get("mountpoint", "")
+        if not label or not mp:
+            continue
+        roots.append({
+            "id": f"disk-{vol['name']}",
+            "name": label,
+            "path": f"{_DISK_PREFIX}{label}",
+            "icon": "disk",
+            "description": f"{vol.get('fstype', '')} · {mp}",
+        })
+
+    # Shares
     result = await db.execute(
         select(Share).where(Share.enabled == True).order_by(Share.name)
     )

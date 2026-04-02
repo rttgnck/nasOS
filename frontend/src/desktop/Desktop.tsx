@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
 import { useMetricsWebSocket } from '../hooks/useWebSocket'
@@ -12,6 +12,7 @@ import { DesktopIcons } from './DesktopIcons'
 import { DesktopWidgets } from './DesktopWidgets'
 import { SnapOverlay, type SnapZone } from './WindowSnapping'
 import { AltTabSwitcher } from './AltTabSwitcher'
+import { Dashboard } from '../apps/Dashboard/Dashboard'
 import { BackupManager } from '../apps/BackupManager/BackupManager'
 import { DockerManager } from '../apps/DockerManager/DockerManager'
 import { FileManager } from '../apps/FileManager/FileManager'
@@ -31,6 +32,7 @@ import { Dock } from './Dock'
 import { useUpdateCheck } from '../hooks/useUpdateCheck'
 import { useDesktopSync } from '../hooks/useDesktopSync'
 import { useLayoutStore } from '../store/layoutStore'
+import { useDashboardStore } from '../store/dashboardStore'
 
 export function Desktop() {
   useMetricsWebSocket()
@@ -42,12 +44,24 @@ export function Desktop() {
 
   const windows = useWindowStore((s) => s.windows)
   const openWindow = useWindowStore((s) => s.openWindow)
+  const { autoOpenDisplay: dashboardAutoOpen } = useDashboardStore()
   const [snapZone, setSnapZone] = useState<SnapZone>(null)
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
     items: MenuItem[]
   } | null>(null)
+
+  // Auto-open dashboard maximized on the physical display session (Electron)
+  const autoOpenFired = useRef(false)
+  useEffect(() => {
+    if (autoOpenFired.current) return
+    if (!dashboardAutoOpen) return
+    const isElectron = !!(window as any).nasOS?.isElectron
+    if (!isElectron) return
+    autoOpenFired.current = true
+    openWindow('dashboard', 'Dashboard', { isMaximized: true })
+  }, [dashboardAutoOpen, openWindow])
 
   const handleDesktopContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -56,6 +70,7 @@ export function Desktop() {
         x: e.clientX,
         y: e.clientY,
         items: [
+          { label: 'Open Dashboard', action: () => openWindow('dashboard', 'Dashboard') },
           { label: 'Open File Manager', action: () => openWindow('file-manager', 'File Manager') },
           { label: 'Open Terminal', action: () => openWindow('terminal', 'Terminal') },
           { label: 'Open System Monitor', action: () => openWindow('system-monitor', 'Monitor') },
@@ -73,6 +88,8 @@ export function Desktop() {
 
   const renderAppContent = (appId: string, title: string, windowId: string, win: any) => {
     switch (appId) {
+      case 'dashboard':
+        return <Dashboard />
       case 'backup-manager':
         return <BackupManager />
       case 'docker-manager':
@@ -97,6 +114,8 @@ export function Desktop() {
         return <Settings initialTab="updates" />
       case 'personalization':
         return <Settings initialTab="personalization" />
+      case 'dashboard-settings':
+        return <Settings initialTab="dashboard" />
       case 'system-monitor':
         return <SystemMonitor />
       case 'terminal':

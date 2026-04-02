@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Folder, Home, HardDrive, ChevronRight, ChevronDown } from 'lucide-react'
+import { Folder, Home, HardDrive, Share2, Disc, ChevronRight, ChevronDown } from 'lucide-react'
 import { api } from '../../hooks/useApi'
 
 interface TreeNode {
@@ -26,9 +26,8 @@ interface FileTreeProps {
 export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
   const [roots, setRoots] = useState<BrowseRoot[]>([])
   const [treesMap, setTreesMap] = useState<Record<string, TreeNode[]>>({})
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['']))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['', '_disks', '_shares']))
 
-  // Load browsable roots
   useEffect(() => {
     api<{ roots: BrowseRoot[] }>('/api/files/roots')
       .then((data) => setRoots(data.roots))
@@ -46,7 +45,6 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     }
   }, [])
 
-  // Load initial tree for each root when roots arrive
   useEffect(() => {
     if (roots.length === 0) return
     const loadAll = async () => {
@@ -64,7 +62,6 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     loadAll()
   }, [roots, loadTree])
 
-  // Auto-expand ancestors when currentPath changes
   useEffect(() => {
     if (!currentPath) return
 
@@ -85,6 +82,8 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     const expandAncestors = async () => {
       const next = new Set(expanded)
       next.add(rootId)
+      if (matchingRoot?.icon === 'disk') next.add('_disks')
+      if (matchingRoot?.icon === 'share') next.add('_shares')
       const currentTree = treesMap[rootId] ?? []
 
       for (const ancestor of ancestors) {
@@ -149,18 +148,22 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
     )
   }
 
-  const renderRoot = (root: BrowseRoot) => {
+  const renderRoot = (root: BrowseRoot, depth: number = 0) => {
     const isActive = root.path === '' ? currentPath === '' : currentPath === root.path
     const isExpanded = expanded.has(root.id)
     const tree = treesMap[root.id] ?? []
     const hasChildren = tree.length > 0
 
-    const RootIcon = root.icon === 'home' ? Home : HardDrive
+    const RootIcon = root.icon === 'home' ? Home
+      : root.icon === 'disk' ? Disc
+      : root.icon === 'share' ? Share2
+      : HardDrive
 
     return (
-      <div key={root.id} className="fm-tree-root-group">
+      <div key={root.id}>
         <div
-          className="fm-tree-item fm-tree-root-item"
+          className="fm-tree-item"
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
           data-active={isActive}
           onClick={() => onNavigate(root.path)}
         >
@@ -181,14 +184,64 @@ export function FileTree({ currentPath, onNavigate }: FileTreeProps) {
           <span className="fm-tree-icon"><RootIcon size={14} /></span>
           <span className="fm-tree-name">{root.name}</span>
         </div>
-        {isExpanded && tree.map((node) => renderNode(node, 1))}
+        {isExpanded && tree.map((node) => renderNode(node, depth + 1))}
       </div>
     )
   }
 
+  const toggleSection = (key: string) => {
+    const next = new Set(expanded)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setExpanded(next)
+  }
+
+  const homeRoot = roots.find((r) => r.icon === 'home')
+  const diskRoots = roots.filter((r) => r.icon === 'disk')
+  const shareRoots = roots.filter((r) => r.icon === 'share')
+
   return (
     <div className="fm-tree">
-      {roots.map(renderRoot)}
+      {/* Home — always at top */}
+      {homeRoot && (
+        <div className="fm-tree-root-group">
+          {renderRoot(homeRoot)}
+        </div>
+      )}
+
+      {/* Disks section */}
+      {diskRoots.length > 0 && (
+        <div className="fm-tree-root-group">
+          <div
+            className="fm-tree-item fm-tree-section-header"
+            onClick={() => toggleSection('_disks')}
+          >
+            <span className="fm-tree-toggle">
+              {expanded.has('_disks') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>
+            <span className="fm-tree-icon"><HardDrive size={14} /></span>
+            <span className="fm-tree-name" style={{ fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.03em', opacity: 0.6 }}>Disks</span>
+          </div>
+          {expanded.has('_disks') && diskRoots.map((r) => renderRoot(r, 1))}
+        </div>
+      )}
+
+      {/* Shares section */}
+      {shareRoots.length > 0 && (
+        <div className="fm-tree-root-group">
+          <div
+            className="fm-tree-item fm-tree-section-header"
+            onClick={() => toggleSection('_shares')}
+          >
+            <span className="fm-tree-toggle">
+              {expanded.has('_shares') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>
+            <span className="fm-tree-icon"><Share2 size={14} /></span>
+            <span className="fm-tree-name" style={{ fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.03em', opacity: 0.6 }}>Shares</span>
+          </div>
+          {expanded.has('_shares') && shareRoots.map((r) => renderRoot(r, 1))}
+        </div>
+      )}
     </div>
   )
 }

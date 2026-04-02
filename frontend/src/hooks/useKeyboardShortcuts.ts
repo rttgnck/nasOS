@@ -39,12 +39,6 @@ export function useKeyboardShortcuts() {
         }
       }
 
-      // Super / Meta key — toggle app menu (handled by Taskbar)
-      // We dispatch a custom event the Taskbar listens for
-      if (e.key === 'Meta' && !e.altKey && !e.ctrlKey && !e.shiftKey) {
-        window.dispatchEvent(new CustomEvent('nasos:toggle-app-menu'))
-      }
-
       // Ctrl+D / Super+D — show desktop (minimize all)
       if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault()

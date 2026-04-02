@@ -11,9 +11,11 @@ import { api } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
 import { useFileStore, type ClipboardItem } from '../../store/fileStore'
 import { useWindowStore } from '../../store/windowStore'
+import { useUploadStore } from '../../store/uploadStore'
 import { FileTree } from './FileTree'
 import { FilePreview } from './FilePreview'
 import { FileContextMenu } from './FileContextMenu'
+import { UploadModal } from './UploadModal'
 
 export interface FileEntry {
   name: string
@@ -106,6 +108,9 @@ export function FileManager({ windowId }: FileManagerProps) {
           if (path.startsWith('@shares/')) {
             const parts = path.slice('@shares/'.length).split('/').filter(Boolean)
             folder = parts[parts.length - 1] ?? parts[0] ?? 'Share'
+          } else if (path.startsWith('@disks/')) {
+            const parts = path.slice('@disks/'.length).split('/').filter(Boolean)
+            folder = parts[parts.length - 1] ?? parts[0] ?? 'Disk'
           } else {
             folder = path.split('/').pop() ?? 'Home'
           }
@@ -288,20 +293,76 @@ export function FileManager({ windowId }: FileManagerProps) {
     finally { setSearchLoading(false) }
   }
 
-  const handleUpload = async (files: FileList) => {
+  const handleUpload = (files: FileList) => {
+    const { addUpload, updateUpload } = useUploadStore.getState()
+    const token = useAuthStore.getState().token
+    const dest = encodeURIComponent(currentPath || '.')
+    let remaining = files.length
+
+    const onFileDone = () => {
+      remaining--
+      if (remaining <= 0) loadDirectory(currentPath)
+    }
+
     for (const file of Array.from(files)) {
+      const id = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const xhr = new XMLHttpRequest()
+
+      addUpload({
+        id,
+        fileName: file.name,
+        fileSize: file.size,
+        loadedBytes: 0,
+        status: 'pending',
+        speed: 0,
+        xhr,
+        startedAt: Date.now(),
+        lastProgressAt: Date.now(),
+        lastProgressBytes: 0,
+      })
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (!e.lengthComputable) return
+        const now = Date.now()
+        const item = useUploadStore.getState().uploads.find((u) => u.id === id)
+        const elapsed = now - (item?.lastProgressAt ?? now)
+        const bytesDelta = e.loaded - (item?.lastProgressBytes ?? 0)
+        const speed = elapsed > 0 ? (bytesDelta / elapsed) * 1000 : item?.speed ?? 0
+
+        updateUpload(id, {
+          loadedBytes: e.loaded,
+          status: 'uploading',
+          speed,
+          lastProgressAt: now,
+          lastProgressBytes: e.loaded,
+        })
+      })
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          updateUpload(id, { status: 'completed', loadedBytes: file.size, speed: 0 })
+        } else {
+          updateUpload(id, { status: 'failed', error: `HTTP ${xhr.status}`, speed: 0 })
+        }
+        onFileDone()
+      })
+
+      xhr.addEventListener('error', () => {
+        updateUpload(id, { status: 'failed', error: 'Network error', speed: 0 })
+        onFileDone()
+      })
+
+      xhr.addEventListener('abort', () => {
+        updateUpload(id, { status: 'cancelled', speed: 0 })
+        onFileDone()
+      })
+
       const formData = new FormData()
       formData.append('file', file)
-      try {
-        const token = useAuthStore.getState().token
-        await fetch(`/api/files/upload?path=${encodeURIComponent(currentPath || '.')}`, {
-          method: 'POST',
-          body: formData,
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-      } catch { /* ignore individual failures */ }
+      xhr.open('POST', `/api/files/upload?path=${dest}`)
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      xhr.send(formData)
     }
-    loadDirectory(currentPath)
   }
 
   const handleDrop = async (e: React.DragEvent, targetPath?: string) => {
@@ -700,6 +761,9 @@ export function FileManager({ windowId }: FileManagerProps) {
         />
       )}
 
+      {/* Upload progress modal */}
+      <UploadModal />
+
       {/* Cross-window drop dialog */}
       {dropDialog && (
         <div className="fm-drop-dialog-overlay" onClick={() => setDropDialog(null)}>
@@ -784,6 +848,22 @@ function buildBreadcrumbs(currentPath: string): BreadcrumbItem[] {
       crumbs.push({
         label: parts[i] ?? '',
         path: `@shares/${parts.slice(0, i + 1).join('/')}`,
+      })
+    }
+    return crumbs
+  }
+
+  if (currentPath.startsWith('@disks/')) {
+    const rest = currentPath.slice('@disks/'.length)
+    const parts = rest.split('/').filter(Boolean)
+    const diskLabel = parts[0] ?? 'Disk'
+    const crumbs: BreadcrumbItem[] = [
+      { label: diskLabel, path: `@disks/${diskLabel}` },
+    ]
+    for (let i = 1; i < parts.length; i++) {
+      crumbs.push({
+        label: parts[i] ?? '',
+        path: `@disks/${parts.slice(0, i + 1).join('/')}`,
       })
     }
     return crumbs

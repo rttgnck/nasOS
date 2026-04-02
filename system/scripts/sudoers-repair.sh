@@ -35,6 +35,10 @@ add_rule 'storage-mount.sh \*' \
 add_rule 'storage-mount.sh$' \
     "$OWNER ALL=(root) NOPASSWD: $NASOS_DIR/scripts/storage-mount.sh"
 
+# System backup restore — privileged file copy for system configs
+add_rule 'restore-helper.sh' \
+    "$OWNER ALL=(root) NOPASSWD: $NASOS_DIR/scripts/restore-helper.sh *"
+
 chmod 440 "$SUDOERS_FILE"
 
 # ── Enable SATA auto-mount service ──────────────────────────────

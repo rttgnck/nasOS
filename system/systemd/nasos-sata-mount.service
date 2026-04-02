@@ -1,9 +1,8 @@
 [Unit]
 Description=nasOS SATA Drive Auto-Mount
-# Run after local filesystems, network, and the backend data dir are ready.
-# dev-disk-by is not used because we wait for devices inside the script.
-After=local-fs.target nasos-firstboot.service
-Wants=local-fs.target
+After=local-fs.target nasos-firstboot.service systemd-udev-settle.service
+Wants=local-fs.target systemd-udev-settle.service
+Before=nasos-backend.service
 
 [Service]
 Type=oneshot

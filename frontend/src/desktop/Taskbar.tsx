@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   type LucideIcon,
   FolderOpen, HardDrive, Share2, Users, Box, Network, Activity, Archive, ScrollText, Settings, RefreshCw,
-  TerminalSquare, LogOut, RotateCcw, PowerOff, Globe, Package, Keyboard,
+  TerminalSquare, LogOut, RotateCcw, PowerOff, Globe, Package, Keyboard, LayoutDashboard,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 import { useSystemStore } from '../store/systemStore'
@@ -14,6 +14,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { WindowPreviewPopup, useWindowPreviewHover } from './WindowPreview'
 
 const APP_ICONS: Record<string, LucideIcon> = {
+  'dashboard': LayoutDashboard,
   'file-manager': FolderOpen,
   'storage-manager': HardDrive,
   'share-manager': Share2,
@@ -30,6 +31,7 @@ const APP_ICONS: Record<string, LucideIcon> = {
 }
 
 const APP_MENU_ITEMS: { id: string; label: string; Icon: LucideIcon }[] = [
+  { id: 'dashboard',        label: 'Dashboard',   Icon: LayoutDashboard },
   { id: 'file-manager',     label: 'File Manager', Icon: FolderOpen  },
   { id: 'storage-manager',  label: 'Storage',      Icon: HardDrive   },
   { id: 'share-manager',    label: 'Shares',       Icon: Share2      },
@@ -61,13 +63,6 @@ export function Taskbar() {
   useEffect(() => {
     const interval = setInterval(() => setClock(formatTime()), 1000)
     return () => clearInterval(interval)
-  }, [])
-
-  // Listen for Meta key toggle from keyboard shortcuts
-  useEffect(() => {
-    const handler = () => setShowMenu((prev) => !prev)
-    window.addEventListener('nasos:toggle-app-menu', handler)
-    return () => window.removeEventListener('nasos:toggle-app-menu', handler)
   }, [])
 
   // Close menu when clicking anywhere outside the menu panel or its button.

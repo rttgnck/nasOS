@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+
+# Generated icon assets (rebuild with: npm run generate-icons)
+assets/trayIconTemplate.png
+assets/trayIconTemplate@2x.png
+assets/icon.png
+assets/icon.icns
+assets/*.iconset/

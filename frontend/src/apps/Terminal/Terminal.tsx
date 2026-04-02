@@ -38,19 +38,21 @@ export function Terminal({ windowId }: TerminalProps) {
     }
 
     ws.onmessage = (event) => {
-      const term = termRef.current
-      if (!term) return
       if (typeof event.data === 'string') {
         try {
           const msg = JSON.parse(event.data)
+          if (msg.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong' }))
+            return
+          }
           if (msg.type === 'error') {
-            term.writeln(`\r\n\x1b[31m${msg.message}\x1b[0m`)
+            termRef.current?.writeln(`\r\n\x1b[31m${msg.message}\x1b[0m`)
           }
         } catch {
-          term.write(event.data)
+          termRef.current?.write(event.data)
         }
       } else {
-        term.write(new Uint8Array(event.data))
+        termRef.current?.write(new Uint8Array(event.data))
       }
     }
 

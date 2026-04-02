@@ -8,6 +8,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.core.security import create_access_token, get_current_user
 from app.services.user_service import needs_password_change
 
@@ -118,6 +119,63 @@ def authenticate_user(username: str, password: str) -> dict | None:
     return _authenticate_dev(username, password)
 
 
+def _get_user_profile(username: str) -> dict | None:
+    """Look up user info by username (no password check). Returns None if unknown."""
+    if not _is_linux:
+        dev_user = _DEV_USERS.get(username)
+        if not dev_user:
+            return None
+        return {
+            "username": dev_user["username"],
+            "fullname": dev_user["fullname"],
+            "groups": dev_user["groups"],
+        }
+    try:
+        import pwd as pwd_mod
+        import grp
+        pw = pwd_mod.getpwnam(username)
+        groups = [g.gr_name for g in grp.getgrall() if username in g.gr_mem]
+        return {
+            "username": username,
+            "fullname": pw.pw_gecos.split(",")[0] if pw.pw_gecos else "",
+            "groups": groups,
+        }
+    except (KeyError, ImportError):
+        return None
+
+
+# ── Auto-login config (file-backed) ─────────────────────────────────
+
+_AUTOLOGIN_FILE = settings.data_dir / ".autologin"
+
+
+def _get_autologin_username() -> str | None:
+    """Return the configured auto-login username, or None if disabled."""
+    if not _AUTOLOGIN_FILE.exists():
+        return None
+    try:
+        name = _AUTOLOGIN_FILE.read_text().strip()
+        return name or None
+    except OSError:
+        return None
+
+
+def _set_autologin_username(username: str | None) -> None:
+    """Persist (or clear) the auto-login username."""
+    _AUTOLOGIN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if username:
+        _AUTOLOGIN_FILE.write_text(username)
+    elif _AUTOLOGIN_FILE.exists():
+        _AUTOLOGIN_FILE.unlink()
+
+
+def _is_localhost(request: Request) -> bool:
+    """True when the request originates from the local machine."""
+    if not request.client:
+        return False
+    return request.client.host in ("127.0.0.1", "::1", "localhost")
+
+
 # ── Routes ────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
@@ -147,28 +205,62 @@ async def login(body: LoginRequest, request: Request):
 async def get_me(current_user: dict = Depends(get_current_user)):
     """Return the current authenticated user's info, including must_change_password flag."""
     username = current_user["username"]
-    # In dev mode, enrich from mock users
-    if not _is_linux:
-        dev_user = _DEV_USERS.get(username)
-        if dev_user:
-            return {
-                "username": dev_user["username"],
-                "fullname": dev_user["fullname"],
-                "groups": dev_user["groups"],
-                "must_change_password": needs_password_change(username),
-            }
+    profile = _get_user_profile(username)
+    if profile:
+        return {**profile, "must_change_password": needs_password_change(username)}
+    return {**current_user, "must_change_password": needs_password_change(username)}
 
-    # On Linux, fetch fresh from system
-    try:
-        import pwd as pwd_mod
-        import grp
-        pw = pwd_mod.getpwnam(username)
-        groups = [g.gr_name for g in grp.getgrall() if username in g.gr_mem]
-        return {
-            "username": username,
-            "fullname": pw.pw_gecos.split(",")[0] if pw.pw_gecos else "",
-            "groups": groups,
-            "must_change_password": needs_password_change(username),
-        }
-    except (KeyError, ImportError):
-        return {**current_user, "must_change_password": needs_password_change(username)}
+
+# ── Auto-login routes ────────────────────────────────────────────────
+
+class AutologinRequest(BaseModel):
+    username: str | None = None
+
+
+@router.get("/autologin")
+async def autologin_token(request: Request):
+    """Public endpoint — issue a JWT if auto-login is configured.
+
+    Restricted to localhost so only the onboard display can use it.
+    """
+    if not _is_localhost(request):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Auto-login is only available from the local display")
+
+    username = _get_autologin_username()
+    if not username:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Auto-login not configured")
+
+    profile = _get_user_profile(username)
+    if not profile:
+        _log.warning("Auto-login user %r no longer exists — clearing config", username)
+        _set_autologin_username(None)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Auto-login user no longer exists")
+
+    token = create_access_token(subject=username)
+    return LoginResponse(
+        access_token=token,
+        user=profile,
+        must_change_password=needs_password_change(username),
+    )
+
+
+@router.get("/autologin/status")
+async def autologin_status(current_user: dict = Depends(get_current_user)):
+    """Return current auto-login configuration."""
+    username = _get_autologin_username()
+    return {"enabled": username is not None, "username": username}
+
+
+@router.put("/autologin")
+async def autologin_set(body: AutologinRequest, current_user: dict = Depends(get_current_user)):
+    """Enable or disable auto-login. Send username to enable, null to disable."""
+    if body.username:
+        profile = _get_user_profile(body.username)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{body.username}' not found")
+        _set_autologin_username(body.username)
+        _log.info("Auto-login enabled for user %r by %s", body.username, current_user["username"])
+    else:
+        _set_autologin_username(None)
+        _log.info("Auto-login disabled by %s", current_user["username"])
+    return {"enabled": body.username is not None, "username": body.username}

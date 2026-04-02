@@ -13,11 +13,10 @@ SupplementaryGroups=video render input
 
 # Environment for Wayland compositor
 Environment=WLR_RENDERER=pixman
-# Required for Pi 5 (vc4/v3d DRM driver): wlroots atomic modesetting can fail
-# on the Pi 5 display pipeline — disabling it forces legacy modesetting which works.
-Environment=WLR_DRM_NO_ATOMIC=1
 # Hardware cursors can cause rendering artefacts with the pixman software renderer
 Environment=WLR_NO_HARDWARE_CURSORS=1
+# NOTE: WLR_DRM_NO_ATOMIC is set dynamically by detect-drm-devices.sh — it's
+# only enabled when no DSI display is present (DSI requires atomic modesetting).
 # NOTE: WLR_LIBINPUT_NO_DEVICES must NOT be set — removing it allows wlroots/cage
 # to use libinput, which is required for mouse/touchpad input to work.
 
@@ -25,12 +24,15 @@ Environment=WLR_NO_HARDWARE_CURSORS=1
 # Uses id -u to dynamically resolve the UID even if Pi Imager renamed the user
 ExecStartPre=+/bin/bash -c 'UID_VAL=$(id -u nasos 2>/dev/null || echo 1000); mkdir -p /run/user/$UID_VAL; chown $UID_VAL:$UID_VAL /run/user/$UID_VAL; chmod 700 /run/user/$UID_VAL'
 
-# Set XDG_RUNTIME_DIR dynamically via bash wrapper so it resolves the actual UID
-# --no-sandbox / --disable-gpu-sandbox: required when Electron runs as a system service
-# --disable-renderer-backgrounding etc.: prevent Chromium from throttling/blanking the
-#   renderer when it thinks the window is in the background (very common on kiosk setups)
-# --disable-features=PaintHolding: prevents blank frames being held during content load
-ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/electron/node_modules/.bin/electron /opt/nasos/electron/main.js --no-sandbox --disable-gpu-sandbox --disable-renderer-backgrounding --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-features=PaintHolding'
+# Auto-detect DRM display cards for wlroots.  Pi 5 has separate /dev/dri
+# cards for HDMI, DSI, DPI, VEC — wlroots only auto-probes the first and
+# misses DSI.  detect-drm-devices.sh writes WLR_DRM_DEVICES to an env file.
+# Non-fatal: if the script fails, Cage falls back to auto-probing (HDMI).
+ExecStartPre=+/bin/bash -c '[ -x /opt/nasos/scripts/detect-drm-devices.sh ] && /opt/nasos/scripts/detect-drm-devices.sh || true'
+EnvironmentFile=-/run/nasos/drm-env
+
+# cage-session.sh applies display rotation via wlr-randr and execs Electron.
+ExecStart=/bin/bash -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -- /opt/nasos/scripts/cage-session.sh'
 Restart=on-failure
 RestartSec=3
 

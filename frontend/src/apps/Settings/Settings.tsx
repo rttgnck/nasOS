@@ -26,6 +26,10 @@ import {
   useThemeStore,
 } from '../../store/themeStore'
 import { useDockStore } from '../../store/dockStore'
+import {
+  DASHBOARD_PANELS,
+  useDashboardStore,
+} from '../../store/dashboardStore'
 import { useLayoutStore, type ScreenEdge } from '../../store/layoutStore'
 import { PasswordInput } from '../../components/PasswordInput'
 import { PowerModal } from '../../desktop/PowerModal'
@@ -117,6 +121,7 @@ type SettingsTab =
   | 'widgets'
   | 'dock'
   | 'layout'
+  | 'dashboard'
   | 'users'
   | 'network'
   | 'services'
@@ -128,6 +133,7 @@ type SettingsTab =
   | 'updates'
   | 'avahi'
   | 'timemachine'
+  | 'systembackup'
   | 'about'
 
 export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
@@ -152,6 +158,9 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         </button>
         <button className={`set-nav ${tab === 'layout' ? 'active' : ''}`} onClick={() => setTab('layout')}>
           <Layout size={14} strokeWidth={2} /> Layout
+        </button>
+        <button className={`set-nav ${tab === 'dashboard' ? 'active' : ''}`} onClick={() => setTab('dashboard')}>
+          <LayoutGrid size={14} strokeWidth={2} /> Dashboard
         </button>
 
         <div className="set-nav-group">System</div>
@@ -194,6 +203,9 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
         <button className={`set-nav ${tab === 'timemachine' ? 'active' : ''}`} onClick={() => setTab('timemachine')}>
           <Clock size={14} strokeWidth={2} /> Time Machine
         </button>
+        <button className={`set-nav ${tab === 'systembackup' ? 'active' : ''}`} onClick={() => setTab('systembackup')}>
+          <Download size={14} strokeWidth={2} /> System Backup
+        </button>
 
         <div className="set-nav-group">About</div>
         <button className={`set-nav ${tab === 'about' ? 'active' : ''}`} onClick={() => setTab('about')}>
@@ -206,6 +218,7 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           {tab === 'widgets' && <WidgetsTab />}
           {tab === 'dock' && <DockTab />}
           {tab === 'layout' && <LayoutTab />}
+          {tab === 'dashboard' && <DashboardSettingsTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'network' && <NetworkTab />}
           {tab === 'services' && <ServicesTab />}
@@ -217,6 +230,7 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
           {tab === 'updates' && <UpdatesTab />}
           {tab === 'avahi' && <AvahiTab />}
           {tab === 'timemachine' && <TimeMachineTab />}
+          {tab === 'systembackup' && <SystemBackupTab />}
           {tab === 'about' && <AboutTab />}
         </TabErrorBoundary>
       </div>
@@ -224,9 +238,201 @@ export function Settings({ initialTab }: { initialTab?: SettingsTab } = {}) {
   )
 }
 
+// ── Dashboard Settings Tab ────────────────────────────────────────
+
+function DashboardScaleRow({
+  label, hint, value, onChange,
+}: {
+  label: string; hint: string; value: number; onChange: (v: number) => void
+}) {
+  const [inputVal, setInputVal] = useState(String(value))
+  useEffect(() => { setInputVal(String(value)) }, [value])
+  const commit = () => {
+    const n = parseFloat(inputVal)
+    if (!isNaN(n) && n >= 0.5 && n <= 5) onChange(n)
+    else setInputVal(String(value))
+  }
+
+  const activeStyle = (v: number) =>
+    value === v
+      ? { background: 'color-mix(in srgb, var(--color-accent) 20%, transparent)', borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }
+      : {}
+
+  return (
+    <>
+      <div className="set-row">
+        <div>
+          <div className="set-label">{label}</div>
+          <div className="set-hint">{hint}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="range" min="0.5" max="5" step="0.25"
+            value={value}
+            onChange={(e) => onChange(parseFloat(e.target.value))}
+            style={{ width: 100 }}
+          />
+          <input
+            className="set-select" type="text"
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
+            style={{ width: 48, textAlign: 'center' }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>x</span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 0 0 0' }}>
+        {[1, 1.5, 2, 2.5, 3, 4].map(v => (
+          <button
+            key={v}
+            className="set-btn set-btn-sm"
+            onClick={() => onChange(v)}
+            style={activeStyle(v)}
+          >
+            {v}x
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function DashboardSettingsTab() {
+  const {
+    enabledPanels, columns, scaleDisplay, scaleRemote, autoOpenDisplay, pollInterval,
+    togglePanel, movePanel, setColumns, setScaleDisplay, setScaleRemote, setAutoOpenDisplay, setPollInterval, resetDefaults,
+  } = useDashboardStore()
+
+  return (
+    <div className="set-tab-content">
+      <div className="set-section-header"><h3>Dashboard</h3></div>
+      <p className="set-desc">
+        Configure which panels appear in the Dashboard app, their layout, and auto-open behavior.
+      </p>
+
+      <div className="set-card" style={{ marginBottom: 16 }}>
+        <div className="set-section-header"><h4>Behavior</h4></div>
+        <div className="set-row">
+          <div>
+            <div className="set-label">Auto-open on display</div>
+            <div className="set-hint">Open Dashboard maximized on the attached display session at login</div>
+          </div>
+          <label className="set-switch">
+            <input type="checkbox" checked={autoOpenDisplay} onChange={(e) => setAutoOpenDisplay(e.target.checked)} />
+            <span className="set-switch-slider" />
+          </label>
+        </div>
+        <div className="set-row">
+          <div>
+            <div className="set-label">Columns</div>
+            <div className="set-hint">Grid columns for the dashboard layout</div>
+          </div>
+          <select
+            className="set-select"
+            value={columns === 'auto' ? 'auto' : String(columns)}
+            onChange={(e) => setColumns(e.target.value === 'auto' ? 'auto' : Number(e.target.value) as 2 | 3 | 4)}
+          >
+            <option value="auto">Auto</option>
+            <option value="2">2 Columns</option>
+            <option value="3">3 Columns</option>
+            <option value="4">4 Columns</option>
+          </select>
+        </div>
+        <div className="set-row">
+          <div>
+            <div className="set-label">Refresh interval</div>
+            <div className="set-hint">How often polled panels refresh their data</div>
+          </div>
+          <select
+            className="set-select"
+            value={String(pollInterval)}
+            onChange={(e) => setPollInterval(Number(e.target.value))}
+          >
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="15">15 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="60">60 seconds</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="set-card" style={{ marginBottom: 16 }}>
+        <div className="set-section-header"><h4>Scale / Zoom</h4></div>
+        <p className="set-desc" style={{ marginBottom: 8 }}>
+          Independent zoom for each session type. The attached display typically needs a higher scale for readability from a distance.
+        </p>
+        <DashboardScaleRow
+          label="Connected display"
+          hint="Scale when viewing on the attached physical display (default 2x)"
+          value={scaleDisplay}
+          onChange={setScaleDisplay}
+        />
+        <div style={{ height: 8 }} />
+        <DashboardScaleRow
+          label="Remote / browser"
+          hint="Scale when viewing via remote browser session (default 1x)"
+          value={scaleRemote}
+          onChange={setScaleRemote}
+        />
+      </div>
+
+      <div className="set-card" style={{ marginBottom: 16 }}>
+        <div className="set-section-header"><h4>Panels</h4></div>
+        <p className="set-desc" style={{ marginBottom: 8 }}>
+          Enable or disable individual dashboard panels. Enabled panels can be reordered.
+        </p>
+        {DASHBOARD_PANELS.map((panel) => {
+          const enabled = enabledPanels.includes(panel.id)
+          const idx = enabledPanels.indexOf(panel.id)
+          return (
+            <div key={panel.id} className="set-row" style={{ paddingBlock: 6 }}>
+              <div style={{ flex: 1 }}>
+                <div className="set-label">{panel.name}</div>
+                <div className="set-hint">{panel.description}</div>
+              </div>
+              {enabled && (
+                <div style={{ display: 'flex', gap: 2, marginRight: 8 }}>
+                  <button
+                    className="set-btn set-btn-sm"
+                    disabled={idx <= 0}
+                    onClick={() => movePanel(panel.id, 'up')}
+                    title="Move up"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="set-btn set-btn-sm"
+                    disabled={idx >= enabledPanels.length - 1}
+                    onClick={() => movePanel(panel.id, 'down')}
+                    title="Move down"
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
+              <label className="set-switch">
+                <input type="checkbox" checked={enabled} onChange={() => togglePanel(panel.id)} />
+                <span className="set-switch-slider" />
+              </label>
+            </div>
+          )
+        })}
+      </div>
+
+      <button className="set-btn" onClick={resetDefaults}>
+        Reset to Defaults
+      </button>
+    </div>
+  )
+}
+
 // ── Dock Tab ──────────────────────────────────────────────────────
 
 const ALL_DOCK_APPS: { id: string; label: string }[] = [
+  { id: 'dashboard',        label: 'Dashboard' },
   { id: 'file-manager',     label: 'File Manager' },
   { id: 'storage-manager',  label: 'Storage' },
   { id: 'share-manager',    label: 'Shares' },
@@ -1135,7 +1341,7 @@ function SecurityTab() {
 interface SataPartition {
   name: string
   path: string
-  size_bytes: number
+  size_bytes: number | null
   fstype: string | null
   mountpoint: string | null
   uuid: string | null
@@ -1143,16 +1349,17 @@ interface SataPartition {
   label: string
   configured_mount: string
   auto_mount: boolean
+  connected: boolean
 }
 
 interface SataDevice {
   name: string
   path: string
-  size_bytes: number
+  size_bytes: number | null
   model: string
   serial: string
   vendor: string
-  transport: string
+  transport: string | null
   partitions: SataPartition[]
 }
 
@@ -1347,229 +1554,301 @@ function SataStorageTab() {
         </div>
       )}
 
-      {/* ── Connected Disks ── */}
-      <div className="set-section-header" style={{ marginTop: 24 }}>
-        <h3>Connected Disks</h3>
-        <button className="set-btn" onClick={load}>↻ Refresh</button>
-      </div>
-      <p className="set-desc">
-        SATA and USB block devices detected on the system. Mount partitions to make them accessible.
-      </p>
+      {/* ── Disks ── */}
+      {(() => {
+        const connectedDevs = data.devices.filter((d) => d.partitions.some((p) => p.connected))
+        const disconnectedDevs = data.devices.filter((d) => d.partitions.every((p) => !p.connected))
 
-      {data.devices.length === 0 ? (
-        <div className="set-card" style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          <HardDrive size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
-          <div>No SATA devices detected</div>
-          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
-            {data.hat.enabled
-              ? 'Connect drives to the SATA HAT and refresh'
-              : 'Enable the SATA HAT above, then reboot'}
-          </div>
-        </div>
-      ) : (
-        data.devices.map((dev) => (
-          <div key={dev.name} className="set-card" style={{ marginBottom: 12 }}>
-            {/* Disk header */}
-            <div className="set-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <HardDrive size={18} style={{ opacity: 0.6 }} />
-                <div>
-                  <div style={{ fontWeight: 600 }}>{dev.model || dev.name}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    /dev/{dev.name} &middot; {formatBytes(dev.size_bytes)} &middot; {dev.transport?.toUpperCase() || 'Unknown'}
-                    {dev.serial ? ` · S/N ${dev.serial}` : ''}
-                  </div>
-                </div>
-              </div>
-            </div>
+        const handleForget = async (partName: string) => {
+          setActionLoading(partName)
+          try {
+            await api(`/api/sata/device/${partName}`, { method: 'DELETE' })
+            await load()
+          } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Failed to forget device')
+          } finally {
+            setActionLoading(null)
+          }
+        }
 
-            {/* Partitions */}
-            {dev.partitions.map((part) => {
-              const isMounted = !!part.mountpoint || !!part.configured_mount
-              const isEditing = editingPart === part.name
-              const isMounting = mountingPart === part.name
-              const isLoading = actionLoading === part.name
+        const renderPartition = (part: SataPartition) => {
+          const isActuallyMounted = !!part.mountpoint
+          const isConfigured = !!part.configured_mount
+          const isEditing = editingPart === part.name
+          const isMounting = mountingPart === part.name
+          const isLoading = actionLoading === part.name
 
-              return (
-                <div key={part.name} style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                  {/* Partition info row */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: isMounted ? '#66bb6a' : 'rgba(255,255,255,0.15)' }} />
-                      <div>
-                        <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
-                          {part.label !== part.name ? part.label : (part.disk_label || part.name)}
-                          <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                            /dev/{part.name}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
-                          <span>{formatBytes(part.size_bytes)}</span>
-                          {part.fstype && <span>{part.fstype}</span>}
-                          {part.mountpoint && <span>→ {part.mountpoint}</span>}
-                          {!part.mountpoint && part.configured_mount && <span>→ {part.configured_mount} (configured)</span>}
-                        </div>
-                      </div>
+          const statusColor = !part.connected
+            ? 'rgba(255,255,255,0.08)'
+            : isActuallyMounted
+              ? '#66bb6a'
+              : isConfigured
+                ? '#ffa726'
+                : 'rgba(255,255,255,0.15)'
+          const statusTitle = !part.connected
+            ? 'Disconnected'
+            : isActuallyMounted
+              ? 'Mounted'
+              : isConfigured
+                ? 'Configured but not mounted'
+                : 'Not mounted'
+
+          return (
+            <div key={part.name} style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: part.connected ? 1 : 0.5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor }} title={statusTitle} />
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
+                      {part.label !== part.name ? part.label : (part.disk_label || part.name)}
+                      <span style={{ marginLeft: 8, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                        /dev/{part.name}
+                      </span>
+                      {!part.connected && (
+                        <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: 4 }}>
+                          Disconnected
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {isMounted ? (
-                        <>
-                          <button
-                            className="set-btn-sm"
-                            onClick={() => {
-                              setEditingPart(isEditing ? null : part.name)
-                              setEditLabel(part.label)
-                              setEditMount(part.configured_mount || part.mountpoint || '')
-                            }}
-                            title="Edit"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                          <button
-                            className="set-btn-sm"
-                            style={{ color: '#ff5252' }}
-                            onClick={() => handleUnmount(part.name)}
-                            disabled={isLoading}
-                            title="Unmount"
-                          >
-                            {isLoading ? <Loader size={13} className="spin" /> : <Plug size={13} />}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className="set-btn"
-                          onClick={() => {
-                            setMountingPart(isMounting ? null : part.name)
-                            setMountLabel(part.disk_label || part.name)
-                            setMountPoint(part.disk_label || part.name)
-                          }}
-                          disabled={!part.fstype}
-                          title={!part.fstype ? 'No filesystem — format the disk first' : 'Mount'}
-                          style={{ fontSize: '0.8rem' }}
-                        >
-                          <Plus size={12} /> Mount
-                        </button>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
+                      {part.size_bytes != null && <span>{formatBytes(part.size_bytes)}</span>}
+                      {part.fstype && <span>{part.fstype}</span>}
+                      {part.mountpoint && <span>→ {part.mountpoint}</span>}
+                      {!part.mountpoint && part.configured_mount && (
+                        <span style={{ color: part.connected ? '#ffa726' : 'var(--text-muted)' }}>
+                          → {part.configured_mount} {part.connected ? '(not mounted)' : ''}
+                        </span>
                       )}
                     </div>
                   </div>
-
-                  {/* Mount form (for unmounted partitions) */}
-                  {isMounting && (
-                    <div style={{
-                      marginTop: 10,
-                      padding: 12,
-                      borderRadius: 8,
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10,
-                    }}>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>Label</span>
-                          <input
-                            style={inputStyle}
-                            value={mountLabel}
-                            onChange={(e) => setMountLabel(e.target.value)}
-                            placeholder="e.g. Media Drive"
-                          />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                            <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
-                            <input
-                              style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                              value={mountPoint.replace(/^\/mnt\//, '')}
-                              onChange={(e) => setMountPoint(e.target.value.replace(/\s/g, '-'))}
-                              placeholder="drive-name"
-                            />
-                          </div>
-                        </label>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          className="set-btn set-btn-primary"
-                          onClick={() => handleMount(part)}
-                          disabled={isLoading || !mountPoint.trim()}
-                          style={{ fontSize: '0.8rem' }}
-                        >
-                          {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />}
-                          {' '}Mount & Save
-                        </button>
-                        <button
-                          className="set-btn"
-                          onClick={() => { setMountingPart(null); setMountLabel(''); setMountPoint('') }}
-                          style={{ fontSize: '0.8rem' }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Edit form (for mounted partitions) */}
-                  {isEditing && (
-                    <div style={{
-                      marginTop: 10,
-                      padding: 12,
-                      borderRadius: 8,
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10,
-                    }}>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>Label</span>
-                          <input
-                            style={inputStyle}
-                            value={editLabel}
-                            onChange={(e) => setEditLabel(e.target.value)}
-                            placeholder="Device label"
-                          />
-                        </label>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                            <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
-                            <input
-                              style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                              value={editMount.replace(/^\/mnt\//, '')}
-                              onChange={(e) => setEditMount(`/mnt/${e.target.value.replace(/\s/g, '-')}`)}
-                              placeholder="drive-name"
-                            />
-                          </div>
-                        </label>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          className="set-btn set-btn-primary"
-                          onClick={() => handleUpdate(part.name)}
-                          disabled={isLoading}
-                          style={{ fontSize: '0.8rem' }}
-                        >
-                          {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />}
-                          {' '}Save Changes
-                        </button>
-                        <button
-                          className="set-btn"
-                          onClick={() => setEditingPart(null)}
-                          style={{ fontSize: '0.8rem' }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {!part.connected ? (
+                    <>
+                      <button
+                        className="set-btn-sm"
+                        style={{ color: part.auto_mount ? '#66bb6a' : 'var(--text-muted)', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 3 }}
+                        onClick={async () => {
+                          setActionLoading(part.name)
+                          try {
+                            await api('/api/sata/auto-mount', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ device_name: part.name, auto_mount: !part.auto_mount }),
+                            })
+                            await load()
+                          } catch (e: unknown) {
+                            setError(e instanceof Error ? e.message : 'Failed to toggle auto-mount')
+                          } finally {
+                            setActionLoading(null)
+                          }
+                        }}
+                        disabled={isLoading}
+                        title={part.auto_mount ? 'Will auto-mount when reconnected' : 'Will not auto-mount when reconnected'}
+                      >
+                        <RotateCcw size={11} />
+                        {part.auto_mount ? 'Auto' : 'Manual'}
+                      </button>
+                      <button
+                        className="set-btn-sm"
+                        style={{ color: '#ff5252' }}
+                        onClick={() => handleForget(part.name)}
+                        disabled={isLoading}
+                        title="Forget this device"
+                      >
+                        {isLoading ? <Loader size={13} className="spin" /> : <Trash2 size={13} />}
+                      </button>
+                    </>
+                  ) : (isActuallyMounted || isConfigured) ? (
+                    <>
+                      <button
+                        className="set-btn-sm"
+                        style={{ color: part.auto_mount ? '#66bb6a' : 'var(--text-muted)', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 3 }}
+                        onClick={async () => {
+                          setActionLoading(part.name)
+                          try {
+                            await api('/api/sata/auto-mount', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ device_name: part.name, auto_mount: !part.auto_mount }),
+                            })
+                            await load()
+                          } catch (e: unknown) {
+                            setError(e instanceof Error ? e.message : 'Failed to toggle auto-mount')
+                          } finally {
+                            setActionLoading(null)
+                          }
+                        }}
+                        disabled={isLoading}
+                        title={part.auto_mount ? 'Auto-mount on boot/reconnect (click to disable)' : 'Not auto-mounted (click to enable)'}
+                      >
+                        <RotateCcw size={11} />
+                        {part.auto_mount ? 'Auto' : 'Manual'}
+                      </button>
+                      <button
+                        className="set-btn-sm"
+                        onClick={() => {
+                          setEditingPart(isEditing ? null : part.name)
+                          setEditLabel(part.label)
+                          setEditMount(part.configured_mount || part.mountpoint || '')
+                        }}
+                        title="Edit"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        className="set-btn-sm"
+                        style={{ color: '#ff5252' }}
+                        onClick={() => handleUnmount(part.name)}
+                        disabled={isLoading}
+                        title="Unmount"
+                      >
+                        {isLoading ? <Loader size={13} className="spin" /> : <Plug size={13} />}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="set-btn"
+                      onClick={() => {
+                        setMountingPart(isMounting ? null : part.name)
+                        setMountLabel(part.disk_label || part.name)
+                        setMountPoint(part.disk_label || part.name)
+                      }}
+                      disabled={!part.fstype}
+                      title={!part.fstype ? 'No filesystem — format the disk first' : 'Mount'}
+                      style={{ fontSize: '0.8rem' }}
+                    >
+                      <Plus size={12} /> Mount
+                    </button>
                   )}
                 </div>
-              )
-            })}
-          </div>
-        ))
-      )}
+              </div>
+
+              {/* Mount form */}
+              {isMounting && part.connected && (
+                <div style={{
+                  marginTop: 10, padding: 12, borderRadius: 8,
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Label</span>
+                      <input style={inputStyle} value={mountLabel} onChange={(e) => setMountLabel(e.target.value)} placeholder="e.g. Media Drive" />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                        <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
+                        <input style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} value={mountPoint.replace(/^\/mnt\//, '')} onChange={(e) => setMountPoint(e.target.value.replace(/\s/g, '-'))} placeholder="drive-name" />
+                      </div>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="set-btn set-btn-primary" onClick={() => handleMount(part)} disabled={isLoading || !mountPoint.trim()} style={{ fontSize: '0.8rem' }}>
+                      {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />} Mount & Save
+                    </button>
+                    <button className="set-btn" onClick={() => { setMountingPart(null); setMountLabel(''); setMountPoint('') }} style={{ fontSize: '0.8rem' }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit form */}
+              {isEditing && part.connected && (
+                <div style={{
+                  marginTop: 10, padding: 12, borderRadius: 8,
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Label</span>
+                      <input style={inputStyle} value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder="Device label" />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Mount Folder</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                        <span style={{ ...inputStyle, borderRight: 'none', borderTopRightRadius: 0, borderBottomRightRadius: 0, background: 'rgba(255,255,255,0.06)', padding: '4px 6px', color: 'var(--text-muted)' }}>/mnt/</span>
+                        <input style={{ ...inputStyle, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} value={editMount.replace(/^\/mnt\//, '')} onChange={(e) => setEditMount(`/mnt/${e.target.value.replace(/\s/g, '-')}`)} placeholder="drive-name" />
+                      </div>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="set-btn set-btn-primary" onClick={() => handleUpdate(part.name)} disabled={isLoading} style={{ fontSize: '0.8rem' }}>
+                      {isLoading ? <Loader size={12} className="spin" /> : <Check size={12} />} Save Changes
+                    </button>
+                    <button className="set-btn" onClick={() => setEditingPart(null)} style={{ fontSize: '0.8rem' }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        const renderDisk = (dev: SataDevice) => {
+          const isDisconnected = dev.partitions.every((p) => !p.connected)
+          return (
+            <div key={dev.name} className="set-card" style={{ marginBottom: 12, opacity: isDisconnected ? 0.6 : 1 }}>
+              <div className="set-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <HardDrive size={18} style={{ opacity: 0.6 }} />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {dev.model || dev.name}
+                      {isDisconnected && (
+                        <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: 4, fontWeight: 400 }}>
+                          Disconnected
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      {dev.path}
+                      {dev.size_bytes != null && <> &middot; {formatBytes(dev.size_bytes)}</>}
+                      {dev.transport && <> &middot; {dev.transport.toUpperCase()}</>}
+                      {dev.serial ? ` · S/N ${dev.serial}` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {dev.partitions.map(renderPartition)}
+            </div>
+          )
+        }
+
+        return (
+          <>
+            <div className="set-section-header" style={{ marginTop: 24 }}>
+              <h3>Disks</h3>
+              <button className="set-btn" onClick={load}>↻ Refresh</button>
+            </div>
+            <p className="set-desc">
+              Detected drives are auto-mounted and appear in the File Manager.
+              Plug in a USB or SATA drive and it will be mounted automatically.
+              Unmounting a drive disables auto-mount; reconnected drives with auto-mount enabled are re-mounted at their saved location.
+            </p>
+
+            {connectedDevs.length === 0 && disconnectedDevs.length === 0 ? (
+              <div className="set-card" style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <HardDrive size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
+                <div>No data disks detected</div>
+                <div style={{ fontSize: '0.8rem', marginTop: 4 }}>Connect a USB or SATA drive — it will be mounted automatically</div>
+              </div>
+            ) : (
+              <>
+                {connectedDevs.map(renderDisk)}
+                {disconnectedDevs.length > 0 && (
+                  <>
+                    <div className="set-section-header" style={{ marginTop: 16 }}>
+                      <h3 style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-muted)' }}>Remembered Disks</h3>
+                    </div>
+                    {disconnectedDevs.map(renderDisk)}
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )
+      })()}
 
       {createPortal(
         <PowerModal mode={restartMode} onClose={() => setRestartMode(null)} />,
@@ -1587,10 +1866,28 @@ interface DetectedDisplay {
   connected: boolean
   resolution: string
   type: string
+  modes: string[]
+}
+
+interface PerDisplayConfig {
+  enabled: boolean
+  rotation: number
+  touch_rotation: number | null
+}
+
+interface DsiOverlay {
+  id: string
+  label: string
 }
 
 interface DisplayInfo {
   displays: DetectedDisplay[]
+  primary_connector: string
+  display_configs: Record<string, PerDisplayConfig>
+  display_overlays: string[]
+  display_overlays_active: string[]
+  dsi_overlays_available: DsiOverlay[]
+  hdmi_overlays_available: DsiOverlay[]
   rotation: number
   connector: string
   resolution: string
@@ -1602,36 +1899,66 @@ function DisplayTab() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [rotation, setRotation] = useState(0)
-  const [selectedConnector, setSelectedConnector] = useState('')
-  const [selectedResolution, setSelectedResolution] = useState('')
-  const [touchMode, setTouchMode] = useState<'auto' | 'custom'>('auto')
-  const [touchRotation, setTouchRotation] = useState(0)
+  const [primaryConnector, setPrimaryConnector] = useState('')
+  const [displayConfigs, setDisplayConfigs] = useState<Record<string, PerDisplayConfig>>({})
+  const [overlays, setOverlays] = useState<string[]>([])
+  const [customOverlay, setCustomOverlay] = useState('')
   const [restartMode, setRestartMode] = useState<'restart' | null>(null)
+
+  const [autologinEnabled, setAutologinEnabled] = useState(false)
+  const [autologinUser, setAutologinUser] = useState<string | null>(null)
+  const [autologinSaving, setAutologinSaving] = useState(false)
+  const currentUser = useAuthStore((s) => s.user)
+
+  const loadAutologin = useCallback(async () => {
+    try {
+      const status = await api<{ enabled: boolean; username: string | null }>('/api/auth/autologin/status')
+      setAutologinEnabled(status.enabled)
+      setAutologinUser(status.username)
+    } catch {
+      // endpoint not available
+    }
+  }, [])
+
+  const toggleAutologin = async () => {
+    if (!currentUser) return
+    setAutologinSaving(true)
+    try {
+      const newUsername = autologinEnabled ? null : currentUser.username
+      const result = await api<{ enabled: boolean; username: string | null }>('/api/auth/autologin', {
+        method: 'PUT',
+        body: JSON.stringify({ username: newUsername }),
+      })
+      setAutologinEnabled(result.enabled)
+      setAutologinUser(result.username)
+    } catch {
+      // revert on failure
+    } finally {
+      setAutologinSaving(false)
+    }
+  }
 
   const load = useCallback(async () => {
     try {
       const d = await api<DisplayInfo>('/api/display')
       setData(d)
-      setRotation(d.rotation)
-      // Use saved connector/resolution, or auto-select first detected display
-      const conn = d.connector || d.displays[0]?.connector || ''
-      const res = d.resolution || d.displays[0]?.resolution || ''
-      setSelectedConnector(conn)
-      setSelectedResolution(res)
-      if (d.touch_rotation === null || d.touch_rotation === undefined) {
-        setTouchMode('auto')
-        setTouchRotation(d.rotation)
-      } else {
-        setTouchMode('custom')
-        setTouchRotation(d.touch_rotation)
-      }
+      setPrimaryConnector(d.primary_connector)
+      setDisplayConfigs(d.display_configs)
+      setOverlays(d.display_overlays ?? [])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load display settings')
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); loadAutologin() }, [load, loadAutologin])
+
+  const updateDisplayConfig = (connector: string, updates: Partial<PerDisplayConfig>) => {
+    setDisplayConfigs(prev => ({
+      ...prev,
+      [connector]: { ...(prev[connector] ?? { enabled: true, rotation: 0, touch_rotation: null }), ...updates },
+    }))
+    setSaved(false)
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -1641,10 +1968,9 @@ function DisplayTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rotation,
-          connector: selectedConnector,
-          resolution: selectedResolution,
-          touch_rotation: touchMode === 'auto' ? null : touchRotation,
+          primary_connector: primaryConnector,
+          display_configs: displayConfigs,
+          display_overlays: overlays,
         }),
       })
       setSaved(true)
@@ -1666,6 +1992,14 @@ function DisplayTab() {
   ]
 
   const hasDisplays = data.displays.length > 0
+  const selectStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.04)',
+    color: '#ccd6f6',
+    fontSize: 12,
+  }
 
   return (
     <div className="set-tab-content">
@@ -1675,133 +2009,307 @@ function DisplayTab() {
       </div>
 
       {!hasDisplays ? (
-        <div className="set-card" style={{ padding: '20px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div className="set-card" style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--text-muted)' }}>
           <Monitor size={32} style={{ opacity: 0.4, marginBottom: 8 }} />
           <div>No displays detected</div>
+          <div style={{ fontSize: '0.8rem', marginTop: 6 }}>
+            If using a DSI screen, you may need to enable a device-tree overlay below and reboot.
+          </div>
         </div>
       ) : (
-        <div className="set-card">
-          {data.displays.map((d) => {
-            const isSelected = d.connector === selectedConnector
+        <div className="set-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {data.displays.map((d, i) => {
+            const isPrimary = d.connector === primaryConnector
+            const cfg = displayConfigs[d.connector] ?? { enabled: true, rotation: 0, touch_rotation: null }
+            const touchMode: 'auto' | 'custom' = cfg.touch_rotation === null || cfg.touch_rotation === undefined ? 'auto' : 'custom'
+            const isDisabled = !cfg.enabled
+
             return (
               <div
-                key={d.name}
-                className="set-row"
-                style={{ cursor: 'pointer', background: isSelected ? 'rgba(100,120,255,0.08)' : undefined }}
-                onClick={() => {
-                  setSelectedConnector(d.connector)
-                  setSelectedResolution(d.resolution)
-                  setSaved(false)
+                key={d.connector}
+                style={{
+                  padding: '14px 16px',
+                  borderBottom: i < data.displays.length - 1 ? '1px solid rgba(255,255,255,0.06)' : undefined,
+                  background: isPrimary ? 'rgba(100,120,255,0.05)' : undefined,
+                  opacity: isDisabled ? 0.5 : 1,
+                  transition: 'opacity 0.2s',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Monitor size={16} style={{ opacity: 0.6 }} />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{d.connector}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      {d.type}{d.resolution ? ` • ${d.resolution}` : ''}
+                {/* Display header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Monitor size={18} style={{ opacity: 0.6, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{d.connector}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: 8, alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+                        <span style={{
+                          background: d.type === 'DSI' ? 'rgba(156,120,255,0.15)' : d.type === 'HDMI' ? 'rgba(100,200,255,0.15)' : 'rgba(255,255,255,0.08)',
+                          color: d.type === 'DSI' ? '#b8a0ff' : d.type === 'HDMI' ? '#7ecfff' : 'var(--text-muted)',
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          letterSpacing: '0.3px',
+                        }}>
+                          {d.type}
+                        </span>
+                        {d.resolution && <span>{d.resolution}</span>}
+                        {d.modes.length > 1 && <span>{d.modes.length} modes</span>}
+                      </div>
                     </div>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {isPrimary ? (
+                      <span style={{
+                        background: 'rgba(100,120,255,0.15)',
+                        color: '#8892ff',
+                        border: '1px solid rgba(100,120,255,0.3)',
+                        padding: '3px 10px',
+                        borderRadius: 6,
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                      }}>
+                        Primary
+                      </span>
+                    ) : (
+                      <button
+                        className="set-btn-sm"
+                        onClick={() => { setPrimaryConnector(d.connector); setSaved(false) }}
+                        style={{ fontSize: '0.78rem' }}
+                      >
+                        Set Primary
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {isSelected
-                  ? <span className="sec-badge sec-badge-on" style={{ background: 'rgba(100,120,255,0.15)', color: '#8892ff', borderColor: 'rgba(100,120,255,0.3)' }}>Selected</span>
-                  : <span className="sec-badge sec-badge-on">Connected</span>}
+
+                {/* Per-display controls */}
+                <div style={{
+                  display: 'flex',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  padding: '8px 10px',
+                  background: 'rgba(255,255,255,0.02)',
+                  borderRadius: 8,
+                  marginTop: 4,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Enabled</span>
+                    <button
+                      className={`set-btn-sm ${cfg.enabled ? 'set-btn-primary' : ''}`}
+                      onClick={() => updateDisplayConfig(d.connector, { enabled: !cfg.enabled })}
+                      style={{ minWidth: 42, fontSize: '0.75rem', padding: '2px 8px' }}
+                    >
+                      {cfg.enabled ? 'On' : 'Off'}
+                    </button>
+                  </div>
+
+                  <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.08)' }} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <RotateCcw size={12} style={{ opacity: 0.5 }} />
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Rotation</span>
+                    <select
+                      value={cfg.rotation}
+                      onChange={(e) => {
+                        const val = Number(e.target.value)
+                        const updates: Partial<PerDisplayConfig> = { rotation: val }
+                        if (touchMode === 'auto') updates.touch_rotation = null
+                        updateDisplayConfig(d.connector, updates)
+                      }}
+                      disabled={isDisabled}
+                      style={selectStyle}
+                    >
+                      {rotationOptions.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.08)' }} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Smartphone size={12} style={{ opacity: 0.5 }} />
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Touch</span>
+                    <select
+                      value={touchMode}
+                      onChange={(e) => {
+                        if (e.target.value === 'auto') {
+                          updateDisplayConfig(d.connector, { touch_rotation: null })
+                        } else {
+                          updateDisplayConfig(d.connector, { touch_rotation: cfg.rotation })
+                        }
+                      }}
+                      disabled={isDisabled}
+                      style={selectStyle}
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                    {touchMode === 'custom' && (
+                      <select
+                        value={cfg.touch_rotation ?? 0}
+                        onChange={(e) => updateDisplayConfig(d.connector, { touch_rotation: Number(e.target.value) })}
+                        disabled={isDisabled}
+                        style={selectStyle}
+                      >
+                        {rotationOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
               </div>
             )
           })}
         </div>
       )}
 
-      <div className="set-section-header" style={{ marginTop: 20 }}>
-        <h3>Screen Rotation</h3>
+      {/* Display overlays */}
+      <div className="set-section-header" style={{ marginTop: 24 }}>
+        <h3>Display Overlays</h3>
       </div>
       <p className="set-desc">
-        Rotate the display output. Useful when the screen is mounted in a non-standard orientation.
+        Device-tree overlays written to <code>config.txt</code> by the display script. Toggle presets or add a custom overlay line. A reboot is required after changes.
       </p>
-      <div className="set-card">
-        <div className="set-row">
-          <span>Rotation</span>
-          <select
-            value={rotation}
-            onChange={(e) => {
-              const val = Number(e.target.value)
-              setRotation(val)
-              if (touchMode === 'auto') setTouchRotation(val)
-              setSaved(false)
-            }}
-            style={{
-              padding: '4px 8px',
-              borderRadius: 6,
-              border: '1px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.04)',
-              color: '#ccd6f6',
-              fontSize: 13,
-            }}
-          >
-            {rotationOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
 
-      <div className="set-section-header" style={{ marginTop: 20 }}>
-        <h3>Touch Orientation</h3>
-      </div>
-      <p className="set-desc">
-        Touch input is automatically adjusted to match the screen rotation. Use "Custom" only if your touchscreen is physically misaligned.
-      </p>
-      <div className="set-card">
-        <div className="set-row">
-          <span>Touch Calibration</span>
-          <select
-            value={touchMode}
-            onChange={(e) => {
-              const mode = e.target.value as 'auto' | 'custom'
-              setTouchMode(mode)
-              if (mode === 'auto') setTouchRotation(rotation)
-              setSaved(false)
-            }}
-            style={{
-              padding: '4px 8px',
-              borderRadius: 6,
-              border: '1px solid rgba(255,255,255,0.1)',
-              background: 'rgba(255,255,255,0.04)',
-              color: '#ccd6f6',
-              fontSize: 13,
-            }}
-          >
-            <option value="auto">Auto (recommended)</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        {touchMode === 'custom' && (
-          <div className="set-row">
-            <span>Touch Rotation</span>
-            <select
-              value={touchRotation}
-              onChange={(e) => {
-                setTouchRotation(Number(e.target.value))
-                setSaved(false)
-              }}
-              style={{
-                padding: '4px 8px',
-                borderRadius: 6,
-                border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.04)',
-                color: '#ccd6f6',
-                fontSize: 13,
-              }}
-            >
-              {rotationOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+      {data.dsi_overlays_available.length > 0 && (
+        <>
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, marginTop: 12, letterSpacing: '0.3px' }}>DSI</div>
+          <div className="set-card">
+            {data.dsi_overlays_available.map((overlay) => {
+              const isEnabled = overlays.includes(overlay.id)
+              return (
+                <div key={overlay.id} className="set-row" style={{ alignItems: 'center' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.88rem' }}>{overlay.label}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      dtoverlay={overlay.id}
+                    </div>
+                  </div>
+                  <button
+                    className={`set-btn-sm ${isEnabled ? 'set-btn-danger' : 'set-btn-primary'}`}
+                    onClick={() => {
+                      setOverlays(prev => isEnabled ? prev.filter(o => o !== overlay.id) : [...prev, overlay.id])
+                      setSaved(false)
+                    }}
+                    style={{ minWidth: 68, flexShrink: 0 }}
+                  >
+                    {isEnabled ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+              )
+            })}
           </div>
-        )}
+        </>
+      )}
+
+      {data.hdmi_overlays_available.length > 0 && (
+        <>
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, marginTop: 16, letterSpacing: '0.3px' }}>HDMI</div>
+          <div className="set-card">
+            {data.hdmi_overlays_available.map((overlay) => {
+              const isEnabled = overlays.includes(overlay.id)
+              return (
+                <div key={overlay.id} className="set-row" style={{ alignItems: 'center' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.88rem' }}>{overlay.label}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 2 }}>
+                      dtoverlay={overlay.id}
+                    </div>
+                  </div>
+                  <button
+                    className={`set-btn-sm ${isEnabled ? 'set-btn-danger' : 'set-btn-primary'}`}
+                    onClick={() => {
+                      setOverlays(prev => isEnabled ? prev.filter(o => o !== overlay.id) : [...prev, overlay.id])
+                      setSaved(false)
+                    }}
+                    style={{ minWidth: 68, flexShrink: 0 }}
+                  >
+                    {isEnabled ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Custom overlays */}
+      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, marginTop: 16, letterSpacing: '0.3px' }}>Custom</div>
+      <div className="set-card">
+        {overlays
+          .filter(o => ![...data.dsi_overlays_available, ...data.hdmi_overlays_available].some(p => p.id === o))
+          .map((o) => (
+            <div key={o} className="set-row" style={{ alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.82rem', fontFamily: 'monospace' }}>dtoverlay={o}</div>
+              </div>
+              <button
+                className="set-btn-sm set-btn-danger"
+                onClick={() => { setOverlays(prev => prev.filter(x => x !== o)); setSaved(false) }}
+                style={{ flexShrink: 0 }}
+              >
+                <Trash2 size={12} style={{ marginRight: 3, verticalAlign: -1 }} />
+                Remove
+              </button>
+            </div>
+          ))}
+        <div className="set-row" style={{ gap: 8 }}>
+          <input
+            type="text"
+            placeholder="overlay-name,param=value"
+            value={customOverlay}
+            onChange={(e) => setCustomOverlay(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && customOverlay.trim()) {
+                const val = customOverlay.trim().replace(/^dtoverlay=/, '')
+                if (val && !overlays.includes(val)) {
+                  setOverlays(prev => [...prev, val])
+                  setSaved(false)
+                }
+                setCustomOverlay('')
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#ccd6f6',
+              fontSize: 13,
+              fontFamily: 'monospace',
+            }}
+          />
+          <button
+            className="set-btn-sm set-btn-primary"
+            disabled={!customOverlay.trim()}
+            onClick={() => {
+              const val = customOverlay.trim().replace(/^dtoverlay=/, '')
+              if (val && !overlays.includes(val)) {
+                setOverlays(prev => [...prev, val])
+                setSaved(false)
+              }
+              setCustomOverlay('')
+            }}
+            style={{ flexShrink: 0 }}
+          >
+            <Plus size={13} style={{ marginRight: 3, verticalAlign: -2 }} />
+            Add
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+      <div className="set-info-banner" style={{ marginTop: 8 }}>
+        <Info size={13} style={{ flexShrink: 0, marginRight: 6, verticalAlign: -2 }} />
+        Overlays are written to a managed block in <code>config.txt</code> when you save. Existing user-added overlays outside the block are not touched.
+      </div>
+
+      {/* Save / restart actions */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           className="set-btn set-btn-primary"
           onClick={handleSave}
@@ -1824,6 +2332,40 @@ function DisplayTab() {
           </span>
         )}
       </div>
+
+      {/* Login at boot */}
+      <div className="set-section-header" style={{ marginTop: 28 }}>
+        <h3>Login at Boot</h3>
+      </div>
+      <p className="set-desc">
+        Automatically log in to the dashboard when the system starts. Skips the login screen on the connected display.
+      </p>
+      <div className="set-card">
+        <div className="set-row">
+          <div>
+            <span>Auto-login on startup</span>
+            {autologinEnabled && autologinUser && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                Logging in as <strong>{autologinUser}</strong>
+              </div>
+            )}
+          </div>
+          <button
+            className={`set-btn-sm ${autologinEnabled ? 'set-btn-danger' : 'set-btn-primary'}`}
+            onClick={toggleAutologin}
+            disabled={autologinSaving}
+            style={{ minWidth: 80 }}
+          >
+            {autologinSaving ? '...' : autologinEnabled ? 'Disable' : 'Enable'}
+          </button>
+        </div>
+      </div>
+      {autologinEnabled && (
+        <div className="set-info-banner" style={{ marginTop: 8 }}>
+          <Lock size={13} style={{ flexShrink: 0, marginRight: 6, verticalAlign: -2 }} />
+          Anyone with physical access to the display will be logged in automatically. Remote access still requires a password.
+        </div>
+      )}
 
       {createPortal(
         <PowerModal mode={restartMode} onClose={() => setRestartMode(null)} />,
@@ -3586,6 +4128,512 @@ function WidgetsTab() {
                 Save
               </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── System Backup Tab ────────────────────────────────────────────
+
+interface BackupEntry {
+  id: number
+  filename: string
+  size_bytes: number
+  size_display: string
+  version: string
+  trigger: string
+  status: string
+  notes: string | null
+  manifest: { files?: string[] }
+  created_at: string
+}
+
+interface BackupSchedule {
+  enabled: boolean
+  interval: string
+  time: string
+  day_of_week: number
+  retention_count: number
+}
+
+const INTERVAL_OPTIONS = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly (1st)' },
+]
+
+const DAY_OPTIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function SystemBackupTab() {
+  const [backups, setBackups] = useState<BackupEntry[]>([])
+  const [schedule, setSchedule] = useState<BackupSchedule | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [restoring, setRestoring] = useState<number | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [confirmRestore, setConfirmRestore] = useState<number | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
+
+  const reload = useCallback(() => {
+    api<{ backups: BackupEntry[] }>('/api/system-backup/').then(r => setBackups(r.backups)).catch(() => {})
+    api<BackupSchedule>('/api/system-backup/schedule/config').then(setSchedule).catch(() => {})
+  }, [])
+
+  useEffect(() => { reload() }, [reload])
+
+  const handleCreate = async () => {
+    setCreating(true)
+    try {
+      await api('/api/system-backup/', { method: 'POST', body: JSON.stringify({}) })
+      showToast('Backup created successfully')
+      reload()
+    } catch (err: any) { showToast(err?.message || 'Backup failed', 'err') }
+    setCreating(false)
+  }
+
+  const [restoreResult, setRestoreResult] = useState<{ restored: string[]; errors: string[] } | null>(null)
+  const [restoreRestarting, setRestoreRestarting] = useState(false)
+
+  const handleRestore = async (id: number) => {
+    setConfirmRestore(null)
+    setRestoring(id)
+    try {
+      const res = await api<{ ok: boolean; restored: string[]; errors: string[] }>(`/api/system-backup/${id}/restore`, { method: 'POST' })
+      setRestoreResult({ restored: res.restored, errors: res.errors })
+    } catch (err: any) { showToast(err?.message || 'Restore failed', 'err') }
+    setRestoring(null)
+  }
+
+  const handleRestoreRestart = async () => {
+    setRestoreResult(null)
+    setRestoreRestarting(true)
+    try {
+      await api('/api/system/restart', { method: 'POST' })
+    } catch {
+      // expected — server drops connection on restart
+    }
+    // poll health until system comes back
+    const poll = () => {
+      setTimeout(async () => {
+        try {
+          await fetch('/api/system/health', { signal: AbortSignal.timeout(3000) })
+          window.location.reload()
+        } catch {
+          poll()
+        }
+      }, 3000)
+    }
+    setTimeout(poll, 8000)
+  }
+
+  const handleDelete = async (id: number) => {
+    setConfirmDelete(null)
+    try {
+      await api(`/api/system-backup/${id}`, { method: 'DELETE' })
+      showToast('Backup deleted')
+      reload()
+    } catch { showToast('Delete failed', 'err') }
+  }
+
+  const handleDownload = (entry: BackupEntry) => {
+    const token = useAuthStore.getState().token
+    const a = document.createElement('a')
+    a.href = `/api/system-backup/${entry.id}/download`
+    if (token) {
+      a.href += `?token=${encodeURIComponent(token)}`
+    }
+    a.download = entry.filename
+    a.click()
+  }
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const token = useAuthStore.getState().token
+      const res = await fetch('/api/system-backup/import', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Upload failed' }))
+        throw new Error(err.detail || 'Upload failed')
+      }
+      showToast('Backup imported successfully')
+      reload()
+    } catch (err: any) { showToast(err.message || 'Import failed', 'err') }
+    setImporting(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleScheduleSave = async (patch: Partial<BackupSchedule>) => {
+    if (!schedule) return
+    const updated = { ...schedule, ...patch }
+    setSchedule(updated)
+    try {
+      await api('/api/system-backup/schedule/config', {
+        method: 'PUT',
+        body: JSON.stringify(updated),
+      })
+    } catch { showToast('Failed to save schedule', 'err') }
+  }
+
+  const triggerLabel = (t: string) => {
+    if (t === 'scheduled') return { cls: 'sec-badge sec-badge-on', text: 'scheduled' }
+    if (t === 'imported') return { cls: 'sec-badge', text: 'imported' }
+    return { cls: 'sec-badge sec-badge-off', text: 'manual' }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: 'var(--bg-primary, #0a1628)',
+    color: 'var(--text-primary, #ccd6f6)',
+    border: '1px solid rgba(255,255,255,.1)',
+    borderRadius: 6, padding: '5px 10px', fontSize: '0.8rem',
+    outline: 'none',
+  }
+
+  return (
+    <div className="set-tab-content">
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 99999,
+          padding: '10px 20px', borderRadius: 8,
+          background: toast.type === 'ok' ? 'rgba(76,175,80,.95)' : 'rgba(244,67,54,.95)',
+          color: '#fff', fontSize: '0.85rem', fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,.3)', backdropFilter: 'blur(8px)',
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
+      <div className="set-section-header">
+        <h3>System Backup &amp; Restore</h3>
+      </div>
+      <p className="set-desc" style={{ lineHeight: 1.5 }}>
+        Create snapshots of all nasOS settings, themes, widgets, layouts, shares, display config,
+        disk mounts, and system configuration. Download backups to keep safe, then import &amp;
+        restore onto a fresh SD card flash.
+      </p>
+
+      {/* ── Actions ── */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="set-btn" onClick={handleCreate} disabled={creating} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {creating ? <><Loader size={13} className="spin" /> Creating...</> : <><Plus size={13} /> Create Backup</>}
+        </button>
+        <button className="set-btn" onClick={() => fileRef.current?.click()} disabled={importing} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {importing ? <><Loader size={13} className="spin" /> Importing...</> : <><Upload size={13} /> Import Backup</>}
+        </button>
+        <input ref={fileRef} type="file" accept=".nasos-backup" style={{ display: 'none' }} onChange={handleImport} />
+      </div>
+
+      {/* ── Schedule ── */}
+      {schedule && (
+        <>
+          <div className="set-section-header" style={{ marginTop: 8 }}><h3>Automatic Schedule</h3></div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 10,
+          }}>
+            {/* enabled */}
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid rgba(255,255,255,.06)',
+              background: 'rgba(255,255,255,.02)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Enabled</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  className={`set-btn ${schedule.enabled ? 'set-btn-danger' : ''}`}
+                  style={{ fontSize: '0.75rem', padding: '3px 10px' }}
+                  onClick={() => handleScheduleSave({ enabled: !schedule.enabled })}
+                >
+                  {schedule.enabled ? 'Disable' : 'Enable'}
+                </button>
+                <span className={`sec-badge ${schedule.enabled ? 'sec-badge-on' : 'sec-badge-off'}`} style={{ fontSize: '0.68rem' }}>
+                  {schedule.enabled ? 'Active' : 'Off'}
+                </span>
+              </div>
+            </div>
+
+            {/* interval */}
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid rgba(255,255,255,.06)',
+              background: 'rgba(255,255,255,.02)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Interval</span>
+              <select value={schedule.interval} onChange={e => handleScheduleSave({ interval: e.target.value })} style={inputStyle}>
+                {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            {/* time */}
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid rgba(255,255,255,.06)',
+              background: 'rgba(255,255,255,.02)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Time</span>
+              <input type="time" value={schedule.time} onChange={e => handleScheduleSave({ time: e.target.value })} style={inputStyle} />
+            </div>
+
+            {/* day of week (weekly only) */}
+            {schedule.interval === 'weekly' && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8,
+                border: '1px solid rgba(255,255,255,.06)',
+                background: 'rgba(255,255,255,.02)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+              }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Day</span>
+                <select value={schedule.day_of_week} onChange={e => handleScheduleSave({ day_of_week: Number(e.target.value) })} style={inputStyle}>
+                  {DAY_OPTIONS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* retention */}
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              border: '1px solid rgba(255,255,255,.06)',
+              background: 'rgba(255,255,255,.02)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+            }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Keep</span>
+              <select value={schedule.retention_count} onChange={e => handleScheduleSave({ retention_count: Number(e.target.value) })} style={inputStyle}>
+                {[3, 5, 7, 10, 15, 20].map(n => <option key={n} value={n}>Last {n}</option>)}
+              </select>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Backup list ── */}
+      <div className="set-section-header" style={{ marginTop: 8 }}><h3>Restore Points ({backups.length})</h3></div>
+
+      {backups.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          No backups yet. Create one to get started.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {backups.map(b => {
+            const badge = triggerLabel(b.trigger)
+            return (
+              <div key={b.id} style={{
+                background: 'rgba(255,255,255,.02)', borderRadius: 10, overflow: 'hidden',
+                border: '1px solid rgba(255,255,255,.06)',
+              }}>
+                {/* row header */}
+                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* top: info + badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <HardDrive size={15} style={{ opacity: 0.5, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, fontSize: '0.84rem', whiteSpace: 'nowrap' }}>
+                      {new Date(b.created_at).toLocaleString()}
+                    </span>
+                    <span className={badge.cls} style={{ fontSize: '0.68rem', flexShrink: 0 }}>{badge.text}</span>
+                    {b.status === 'failed' && <span className="sec-badge sec-badge-off" style={{ fontSize: '0.68rem', flexShrink: 0 }}>failed</span>}
+                  </div>
+                  {/* meta line */}
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', paddingLeft: 23 }}>
+                    v{b.version} &middot; {b.size_display} &middot; {b.manifest?.files?.length ?? 0} files
+                    {b.notes && <> &middot; {b.notes}</>}
+                  </div>
+                  {/* action buttons — always on own line for clean alignment */}
+                  <div style={{ display: 'flex', gap: 6, paddingLeft: 23 }}>
+                    <button className="set-btn-sm" onClick={() => setExpandedId(expandedId === b.id ? null : b.id)} title="Details" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Info size={11} /> Details
+                    </button>
+                    <button className="set-btn-sm" onClick={() => handleDownload(b)} title="Download" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Download size={11} /> Download
+                    </button>
+                    <button
+                      className="set-btn-sm"
+                      onClick={() => setConfirmRestore(b.id)}
+                      disabled={restoring === b.id || b.status === 'failed'}
+                      title="Restore"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    >
+                      {restoring === b.id ? <Loader size={11} className="spin" /> : <RotateCcw size={11} />} Restore
+                    </button>
+                    <button className="set-btn-sm" onClick={() => setConfirmDelete(b.id)} title="Delete" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#ff5252' }}>
+                      <Trash2 size={11} /> Delete
+                    </button>
+                  </div>
+                </div>
+
+                {/* expanded manifest */}
+                {expandedId === b.id && b.manifest?.files && (
+                  <div style={{
+                    padding: '8px 14px 10px 37px', borderTop: '1px solid rgba(255,255,255,.06)',
+                    background: 'rgba(0,0,0,.15)', fontSize: '0.73rem',
+                    fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-muted)',
+                    maxHeight: 160, overflowY: 'auto', lineHeight: 1.7,
+                  }}>
+                    {b.manifest.files.map((f, i) => <div key={i}>{f}</div>)}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Confirm restore modal ── */}
+      {confirmRestore != null && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99998,
+          background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)',
+        }} onClick={() => setConfirmRestore(null)}>
+          <div style={{
+            background: 'var(--bg-secondary, #112240)', borderRadius: 14, padding: '24px 28px',
+            maxWidth: 420, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,.4)',
+            border: '1px solid rgba(255,255,255,.1)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <AlertTriangle size={22} color="#ffa726" />
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>Confirm Restore</h3>
+            </div>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 18px' }}>
+              This will overwrite current settings, database, themes, widgets, shares, and system
+              configs with the backup contents. A restart is recommended after restoring.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="set-btn" onClick={() => setConfirmRestore(null)}>Cancel</button>
+              <button className="set-btn set-btn-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => handleRestore(confirmRestore)}>
+                <RotateCcw size={13} /> Restore Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm delete modal ── */}
+      {confirmDelete != null && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99998,
+          background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)',
+        }} onClick={() => setConfirmDelete(null)}>
+          <div style={{
+            background: 'var(--bg-secondary, #112240)', borderRadius: 14, padding: '24px 28px',
+            maxWidth: 380, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,.4)',
+            border: '1px solid rgba(255,255,255,.1)',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 10px', fontSize: '1rem' }}>Delete Backup?</h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 18px' }}>
+              This backup file will be permanently removed and cannot be recovered.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="set-btn" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button className="set-btn set-btn-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => handleDelete(confirmDelete)}>
+                <Trash2 size={13} /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restore result modal ── */}
+      {restoreResult && !restoreRestarting && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99998,
+          background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)',
+        }} onClick={() => setRestoreResult(null)}>
+          <div style={{
+            background: 'var(--bg-secondary, #112240)', borderRadius: 14, padding: '24px 28px',
+            maxWidth: 500, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,.4)',
+            border: '1px solid rgba(255,255,255,.1)', maxHeight: '80vh', overflowY: 'auto',
+            userSelect: 'text',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              {restoreResult.errors.length === 0
+                ? <Check size={22} color="#4caf50" />
+                : <AlertTriangle size={22} color="#ffa726" />
+              }
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>Restore Complete</h3>
+            </div>
+
+            {restoreResult.restored.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#4caf50', marginBottom: 6 }}>
+                  Restored ({restoreResult.restored.length})
+                </div>
+                <div style={{
+                  fontSize: '0.73rem', fontFamily: 'var(--font-mono, monospace)',
+                  color: 'var(--text-muted)', background: 'rgba(0,0,0,.2)',
+                  borderRadius: 6, padding: '8px 12px', lineHeight: 1.7,
+                  maxHeight: 120, overflowY: 'auto', userSelect: 'text', cursor: 'text',
+                }}>
+                  {restoreResult.restored.map((f, i) => <div key={i}>{f}</div>)}
+                </div>
+              </div>
+            )}
+
+            {restoreResult.errors.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#ff5252', marginBottom: 6 }}>
+                  Errors ({restoreResult.errors.length})
+                </div>
+                <div style={{
+                  fontSize: '0.73rem', fontFamily: 'var(--font-mono, monospace)',
+                  color: '#ff8a80', background: 'rgba(255,82,82,.08)',
+                  borderRadius: 6, padding: '8px 12px', lineHeight: 1.7,
+                  maxHeight: 120, overflowY: 'auto', userSelect: 'text', cursor: 'text',
+                }}>
+                  {restoreResult.errors.map((f, i) => <div key={i}>{f}</div>)}
+                </div>
+              </div>
+            )}
+
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 18px' }}>
+              A restart is required to apply all restored settings.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="set-btn" onClick={() => setRestoreResult(null)}>Later</button>
+              <button className="set-btn set-btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={handleRestoreRestart}>
+                <RotateCcw size={13} /> Restart Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restart waiting overlay ── */}
+      {restoreRestarting && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          background: 'rgba(0,0,0,.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <div style={{ textAlign: 'center', maxWidth: 400 }}>
+            <Loader size={40} className="spin" style={{ marginBottom: 20, opacity: 0.7 }} />
+            <h2 style={{ margin: '0 0 10px', fontSize: '1.1rem' }}>Restarting nasOS…</h2>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              The system is restarting with your restored settings.
+              This page will reconnect automatically.
+            </p>
           </div>
         </div>
       )}

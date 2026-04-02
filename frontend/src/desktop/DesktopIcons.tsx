@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type LucideIcon,
   FolderOpen, HardDrive, Share2, Box, Activity, Archive, Settings, RefreshCw, TerminalSquare,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useWindowStore } from '../store/windowStore'
 
@@ -18,6 +19,7 @@ interface IconPosition {
 }
 
 const DESKTOP_ICONS: DesktopIcon[] = [
+  { id: 'icon-dashboard', appId: 'dashboard',       label: 'Dashboard',    Icon: LayoutDashboard },
   { id: 'icon-files',    appId: 'file-manager',    label: 'File Manager', Icon: FolderOpen },
   { id: 'icon-storage',  appId: 'storage-manager', label: 'Storage',      Icon: HardDrive },
   { id: 'icon-shares',   appId: 'share-manager',   label: 'Shares',       Icon: Share2 },

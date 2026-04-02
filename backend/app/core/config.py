@@ -53,7 +53,7 @@ def _load_or_create_secret(secret_file: Path) -> str:
 
 class Settings(BaseSettings):
     app_name: str = "nasOS"
-    version: str = "032426-002859"
+    version: str = "040126-2331"
     debug: bool = False
 
     # Paths — auto-detects dev vs production
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
 
     # Auth — secret_key is resolved after construction (see below)
     secret_key: str = ""
-    access_token_expire_minutes: int = 60 * 24  # 24 hours
+    access_token_expire_minutes: int = 60 * 24 * 30  # 30 days
     algorithm: str = "HS256"
 
     # Server

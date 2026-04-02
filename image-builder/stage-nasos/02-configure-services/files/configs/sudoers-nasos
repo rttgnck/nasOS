@@ -7,3 +7,10 @@
 
 nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh *
 nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/share-helper.sh
+
+# Storage mount management — SATA HAT config and block device mounts
+nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/storage-mount.sh *
+nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/storage-mount.sh
+
+# System backup restore — copy system config files back into place
+nasos ALL=(root) NOPASSWD: /opt/nasos/scripts/restore-helper.sh *

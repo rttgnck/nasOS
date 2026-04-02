@@ -6,14 +6,19 @@ const isDev = process.argv.includes('--dev')
 // Backend URL
 const BACKEND_URL = isDev ? 'http://localhost:5173' : 'http://localhost:8080'
 
+// Display dimensions detected by cage-session.sh via wlr-randr.
+// Falls back to 800x480 (common DSI size) rather than 1280x800 to
+// avoid creating a window larger than the physical display.
+const displayWidth = parseInt(process.env.NASOS_DISPLAY_WIDTH) || 800
+const displayHeight = parseInt(process.env.NASOS_DISPLAY_HEIGHT) || 480
+
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    fullscreen: !isDev,
-    frame: isDev, // No frame in production (acts as the entire desktop)
+    width: isDev ? 1280 : displayWidth,
+    height: isDev ? 800 : displayHeight,
+    minWidth: 480,
+    minHeight: 320,
+    frame: isDev,
     autoHideMenuBar: true,
     backgroundColor: '#0f0c29',
     webPreferences: {
@@ -24,21 +29,23 @@ function createWindow() {
     },
   })
 
+  // Cage is a kiosk compositor that fullscreens its child window
+  // automatically. We don't set fullscreen/kiosk in BrowserWindow
+  // options because the X11 fullscreen hint via XWayland can conflict
+  // with Cage's own fullscreening on DSI displays.
+  if (!isDev) win.maximize()
+
   win.loadURL(BACKEND_URL)
 
-  // Open devtools in dev mode
   if (isDev) {
     win.webContents.openDevTools({ mode: 'detach' })
   }
 
-  // Handle load failures (backend not ready yet)
   win.webContents.on('did-fail-load', () => {
     console.log('Failed to load, retrying in 2 seconds...')
     setTimeout(() => win.loadURL(BACKEND_URL), 2000)
   })
 
-  // Auto-reload if the renderer process crashes (GPU OOM, JS exception, etc.)
-  // This prevents the screen from staying blank after a renderer crash.
   win.webContents.on('render-process-gone', (event, details) => {
     console.error('Renderer process gone:', details.reason, '— reloading in 3s')
     setTimeout(() => {
@@ -55,7 +62,6 @@ function createWindow() {
     }, 5000)
   })
 
-  // Prevent navigation to external URLs
   win.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(BACKEND_URL)) {
       event.preventDefault()
@@ -66,12 +72,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Prevent the display from sleeping / going blank while nasOS is running.
-  // This stops DPMS blanking that cage/wlroots triggers after idle time.
   powerSaveBlocker.start('prevent-display-sleep')
 
-  // Set Content-Security-Policy on all responses loaded into the renderer.
-  // This silences Electron's security warning and hardens the app against XSS.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -105,7 +107,6 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Disable hardware acceleration if running on Pi without GPU driver
 if (process.env.NASOS_DISABLE_GPU === '1') {
   app.disableHardwareAcceleration()
 }

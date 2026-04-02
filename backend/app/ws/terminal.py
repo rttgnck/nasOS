@@ -17,6 +17,9 @@ from app.core.security import verify_ws_token
 _log = logging.getLogger(__name__)
 
 
+_KEEPALIVE_INTERVAL = 25  # seconds
+
+
 async def terminal_ws(websocket: WebSocket):
     """WebSocket endpoint that spawns a PTY shell session."""
     token = websocket.query_params.get("token")
@@ -50,6 +53,12 @@ async def terminal_ws(websocket: WebSocket):
             try:
                 import pwd
                 pw = pwd.getpwuid(1000)
+                # Transfer PTY slave ownership so programs like sudo can
+                # open /dev/tty to read passwords securely.
+                try:
+                    os.chown(os.ttyname(0), pw.pw_uid, pw.pw_gid)
+                except OSError:
+                    pass
                 os.setgid(pw.pw_gid)
                 os.setuid(pw.pw_uid)
                 env["HOME"] = pw.pw_dir
@@ -98,6 +107,18 @@ async def terminal_ws(websocket: WebSocket):
 
     sender_task = asyncio.create_task(_send_output())
 
+    # Keepalive: prevents idle-timeout disconnects during long pauses
+    # (e.g. waiting for a sudo password prompt with echo disabled).
+    async def _keepalive():
+        try:
+            while True:
+                await asyncio.sleep(_KEEPALIVE_INTERVAL)
+                await websocket.send_text('{"type":"ping"}')
+        except Exception:
+            pass
+
+    keepalive_task = asyncio.create_task(_keepalive())
+
     try:
         while True:
             msg = await websocket.receive()
@@ -105,16 +126,20 @@ async def terminal_ws(websocket: WebSocket):
                 text = msg["text"]
                 try:
                     parsed = json.loads(text)
-                    if parsed.get("type") == "resize":
-                        cols = parsed.get("cols", 80)
-                        rows = parsed.get("rows", 24)
-                        winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
-                        try:
-                            os.kill(pid, signal.SIGWINCH)
-                        except OSError:
-                            pass
-                        continue
+                    if isinstance(parsed, dict):
+                        msg_type = parsed.get("type")
+                        if msg_type == "resize":
+                            cols = parsed.get("cols", 80)
+                            rows = parsed.get("rows", 24)
+                            winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                            try:
+                                os.kill(pid, signal.SIGWINCH)
+                            except OSError:
+                                pass
+                            continue
+                        if msg_type == "pong":
+                            continue
                 except (json.JSONDecodeError, ValueError):
                     pass
                 await loop.run_in_executor(
@@ -131,6 +156,7 @@ async def terminal_ws(websocket: WebSocket):
     finally:
         alive = False
         sender_task.cancel()
+        keepalive_task.cancel()
         try:
             os.close(master_fd)
         except OSError:

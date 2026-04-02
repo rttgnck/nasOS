@@ -4,6 +4,7 @@ import { useThemeStore } from './store/themeStore'
 import { Desktop } from './desktop/Desktop'
 import { LoginScreen } from './apps/LoginScreen/LoginScreen'
 import { OnScreenKeyboard } from './desktop/OnScreenKeyboard'
+import { TouchCursor } from './components/TouchCursor'
 
 export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -15,6 +16,12 @@ export function App() {
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
+
+  useEffect(() => {
+    if ((window as { nasOS?: { isElectron?: boolean } }).nasOS?.isElectron) {
+      document.body.classList.add('touch-cursor-host')
+    }
+  }, [])
 
   // Load theme from backend whenever the user becomes authenticated.
   // Also runs on mount if the user is already authenticated (e.g. page reload
@@ -32,21 +39,24 @@ export function App() {
   // Show nothing while checking existing token
   if (isLoading && !isAuthenticated) {
     return (
-      <div className="login-screen">
-        <div className="login-loading">
-          <div className="login-logo-icon">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-              <rect x="4" y="8" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.9" />
-              <rect x="4" y="20" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.7" />
-              <rect x="4" y="32" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.5" />
-              <circle cx="10" cy="13" r="2" fill="#1a1a2e" />
-              <circle cx="10" cy="25" r="2" fill="#1a1a2e" />
-              <circle cx="10" cy="37" r="2" fill="#1a1a2e" />
-            </svg>
+      <>
+        <div className="login-screen">
+          <div className="login-loading">
+            <div className="login-logo-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect x="4" y="8" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.9" />
+                <rect x="4" y="20" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.7" />
+                <rect x="4" y="32" width="40" height="10" rx="3" fill="#4fc3f7" opacity="0.5" />
+                <circle cx="10" cy="13" r="2" fill="#1a1a2e" />
+                <circle cx="10" cy="25" r="2" fill="#1a1a2e" />
+                <circle cx="10" cy="37" r="2" fill="#1a1a2e" />
+              </svg>
+            </div>
+            <p>Loading...</p>
           </div>
-          <p>Loading...</p>
         </div>
-      </div>
+        <TouchCursor />
+      </>
     )
   }
 
@@ -55,6 +65,7 @@ export function App() {
       <>
         <LoginScreen />
         <OnScreenKeyboard />
+        <TouchCursor />
       </>
     )
   }
@@ -63,6 +74,7 @@ export function App() {
     <>
       <Desktop />
       <OnScreenKeyboard />
+      <TouchCursor />
     </>
   )
 }
